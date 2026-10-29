@@ -8,7 +8,7 @@ import Security
 // названия принадлежат их владельцам и упоминаются только для описания совместимости.
 // Работает через открытый API: https://api.iot.yandex.net/v1.0
 
-let appVersion = "1.10.2"
+let appVersion = "1.10.4"
 let appAuthor = "Lenar Abdrakhmanov"
 // Публичный ID OAuth-приложения автора (не секрет). Свой ID можно задать без пересборки:
 //   defaults write local.yahome.menubar clientID "ВАШ_ID"
@@ -5457,7 +5457,8 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Версия " + appVersion).font(.system(size: 15, weight: .bold))
+                                Text("Мой дом · версия " + appVersion).font(.system(size: 15, weight: .bold))
+                                Text("Разработчик: " + appAuthor).font(.system(size: 11)).foregroundColor(.secondary)
                                 Text(m.lastUpdateCheck.map { "Проверено " + HomeModel.agoText($0) } ?? "Ещё не проверяли")
                                     .font(.system(size: 11)).foregroundColor(.secondary)
                             }
@@ -5689,8 +5690,6 @@ struct SettingsView: View {
                     }
                     .card()
 
-                    Text("Мой дом " + appVersion + " · " + appAuthor).font(.system(size: 11)).foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity)
                 }
                 .padding(.horizontal, 16).padding(.bottom, 20)
             }
