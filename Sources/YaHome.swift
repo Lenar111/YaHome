@@ -1187,7 +1187,8 @@ final class HomeModel: ObservableObject {
             return (a.timeIntervalSince1970, b.timeIntervalSince1970, false)
         }
         guard let a = statsAnchor else {
-            let span: Double = [86400, 7 * 86400, 30 * 86400, 365 * 86400][Swift.min(3, statsPeriod)]
+            let spans: [Double] = [86400.0, 7.0 * 86400.0, 30.0 * 86400.0, 365.0 * 86400.0]
+            let span: Double = spans[Swift.min(3, statsPeriod)]
             return (nowT - span, nowT, true)
         }
         switch statsPeriod {
