@@ -8,7 +8,7 @@ import Security
 // названия принадлежат их владельцам и упоминаются только для описания совместимости.
 // Работает через открытый API: https://api.iot.yandex.net/v1.0
 
-let appVersion = "1.10.1"
+let appVersion = "1.10.2"
 let appAuthor = "Lenar Abdrakhmanov"
 // Публичный ID OAuth-приложения автора (не секрет). Свой ID можно задать без пересборки:
 //   defaults write local.yahome.menubar clientID "ВАШ_ID"
@@ -277,7 +277,9 @@ struct OtherCap {
     var type: String
     var instance: String
     var title: String
-    var isButton: Bool { return type.contains("button") }
+    /// кнопка пульта, которую можно нажать через API. «builtin_buttons» — служебная возможность станций:
+    /// Яндекс не принимает по ней команды, поэтому кнопкой её не показываем
+    var isButton: Bool { return type.contains("button") && !type.contains("builtin") && !instance.contains("builtin") }
 }
 
 struct Dev: Identifiable {
@@ -573,35 +575,104 @@ struct Dev: Identifiable {
     var iconKey: String? {
         let n = name.lowercased()
         let k = kind
+        let padded = " " + n + " "
         func has(_ s: String) -> Bool { return n.contains(s) }
+        func kk(_ s: String) -> Bool { return k.contains(s) }
+        func hasAny(_ ws: [String]) -> Bool { for w in ws where n.contains(w) { return true }; return false }
         if has("пульт") { return "ir" }
         if has("выключат") { return "switch2" }
         if has("гуви") || has("настольн") { return "lamp_white" }
         if has("кубик") || has("ночник") { return "lamp_pink" }
         if has("эмби") { return "lamp_ambi" }
-        if has("кондиц") || has("сплит") { return "ac" }
-        if has("очист") { return "purifier" }
-        if has("увлажн") { return "humidifier" }
+        if has("кондиц") || has("сплит") || kk("thermostat.ac") { return "ac" }
+        if has("очист") || k.hasPrefix("purifier") { return "purifier" }
+        if has("увлажн") || k.hasPrefix("humidifier") { return "humidifier" }
         if has("робик") || has("пылесос") || k.hasPrefix("vacuum") { return "vacuum" }
-        if has("чайник") || k.contains("kettle") { return "kettle" }
+        if has("чайник") || kk("kettle") { return "kettle" }
         if has("музык") { return "music" }
-        if has("подсветка т") || has("лент") || has("подсветка тв") { return "strip" }
-        if has("тв") || has("телев") || k.hasPrefix("media_device.tv") || k.hasPrefix("tv") { return "tv" }
-        if has("лайт") { return "lite" }
-        if has("мини") { return "mini" }
-        if has("стрит") {
-            let s = id.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-            return s % 2 == 0 ? "street_gray" : "street_black"
+        if has("подсветка т") || has("лент") || has("подсветка тв") || kk("light.strip") { return "strip" }
+
+        // умные колонки: размер и форма зависят от модели
+        let spk = k.hasPrefix("smart_speaker") || has("станци") || has("колонк") || has("алис")
+        if spk {
+            if has("макс") || has("max") { return "max" }
+            if has("лайт") || has("lite") { return "lite" }
+            if has("миди") || has("midi") { return "midi" }
+            if has("мини") || has("mini") { return "mini" }
+            if has("стрит") {
+                let sc = id.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+                return sc % 2 == 0 ? "street_gray" : "street_black"
+            }
+            return "station"
         }
-        if has("станци") || has("алис") || has("колонк") || k.hasPrefix("smart_speaker") { return "station" }
-        if has("ламп") || has("подсвет") || has("включ") || k.hasPrefix("light") {
+
+        // телевизоры и медиа
+        if kk("tv_box") || has("приставк") { return "tvbox" }
+        if has("проектор") { return "projector" }
+        if kk("receiver") || hasAny(["саундбар", "ресивер", "soundbar"]) { return "soundbar" }
+        if padded.contains(" тв") || has("телев") || has("tv") || k.hasPrefix("media_device.tv") || k.hasPrefix("tv") { return "tv" }
+        if k.hasPrefix("media_device") { return "soundbar" }
+
+        // датчики
+        if k.hasPrefix("sensor") {
+            if kk("motion") || has("движен") { return "s_motion" }
+            if kk("open") || hasAny(["открыт", "двер", "окн"]) { return "s_door" }
+            if kk("button") || has("кнопк") { return "s_button" }
+            if kk("smoke") || has("дым") { return "s_smoke" }
+            if kk("gas") || has("газ") { return "s_gas" }
+            if kk("vibration") || has("вибрац") { return "s_vib" }
+            if kk("illumination") || has("освещ") { return "s_light" }
+            if kk("water_leak") || has("протеч") { return "s_leak" }
+            if kk("climate") || hasAny(["температур", "влажн", "климат"]) { return "s_climate" }
+            return "s_generic"
+        }
+        // счётчики
+        if k.hasPrefix("smart_meter") {
+            if kk("electricity") { return "m_elec" }
+            if kk("gas") { return "m_gas" }
+            if kk("water") { return "m_water" }
+            if kk("heat") { return "m_heat" }
+            return "m_generic"
+        }
+        if k.hasPrefix("camera") || has("камер") { return "camera" }
+        if k.hasPrefix("pet_feeder") || has("кормуш") { return "pet_feeder" }
+        if k.hasPrefix("pet_drinking") || hasAny(["поилк", "фонтан"]) { return "pet_fountain" }
+        if k.hasPrefix("hub") || hasAny(["хаб", "шлюз"]) { return "hub" }
+
+        // шторы, ворота, замки
+        if k.hasPrefix("openable") {
+            if kk("valve") || hasAny(["клапан", "кран"]) { return "valve" }
+            if hasAny(["ворот", "гараж"]) { return "gate" }
+            if has("замок") { return "lock" }
+            return "curtain"
+        }
+        if hasAny(["штор", "жалюзи", "карниз"]) { return "curtain" }
+        if hasAny(["ворот", "гараж"]) { return "gate" }
+        if has("замок") { return "lock" }
+
+        // кухня и бытовая техника
+        if kk("coffee") || has("кофе") { return "coffee" }
+        if kk("multicooker") || has("мультивар") { return "multicooker" }
+        if has("холодил") { return "fridge" }
+        if hasAny(["духов", "плита", "варочн"]) { return "oven" }
+        if k.hasPrefix("cooking") { return "multicooker" }
+        if k.hasPrefix("washing") || has("стираль") { return "washer" }
+        if k.hasPrefix("dishwasher") || has("посудомо") { return "dishwasher" }
+        if k.hasPrefix("iron") || has("утюг") { return "iron" }
+
+        // климат
+        if k.hasPrefix("fan") || k.hasPrefix("ventilation") || has("вентилятор") { return "fan" }
+        if hasAny(["обогрев", "радиатор", "конвектор", "тёплый пол", "теплый пол"]) || k.hasPrefix("thermostat") { return "heater" }
+
+        // свет и розетки
+        if has("розетк") || k.hasPrefix("socket") { return "socket" }
+        if hasAny(["потолоч", "люстр", "плафон"]) || kk("light.ceiling") { return "ceiling" }
+        if has("торшер") { return "floorlamp" }
+        if has("ламп") || has("подсвет") || has("включ") || k.hasPrefix("light") || has("светильник") {
             if let c = color, !c.model.isEmpty, !has("лампоч"), !has("подсвет") { return "lamp_pink" }
             return "bulb"
         }
         if k.hasPrefix("switch") { return "switch2" }
-        if k.hasPrefix("thermostat") { return "ac" }
-        if k.hasPrefix("humidifier") { return "humidifier" }
-        if k.hasPrefix("purifier") { return "purifier" }
         return nil
     }
 
@@ -1122,6 +1193,7 @@ final class HomeModel: ObservableObject {
         if abs((heights[k] ?? 0) - v) > 1 { heights[k] = v }
     }
     @Published var hoverRoom: String? = nil
+    @Published var draggingRoom: String? = nil
     @Published var collapsed: Set<String> = []
     @Published var doneMsg: String? = nil
 
@@ -1142,6 +1214,123 @@ final class HomeModel: ObservableObject {
     let server = AuthServer()
     var timer: Timer?
     var isOpen = false
+
+    // проверка обновлений
+    @Published var latestTag: String? = ud.string(forKey: "latestTag") { didSet { ud.set(latestTag, forKey: "latestTag") } }
+    @Published var latestURL: String? = ud.string(forKey: "latestURL") { didSet { ud.set(latestURL, forKey: "latestURL") } }
+    @Published var latestNotes: [String] = (ud.array(forKey: "latestNotes") as? [String]) ?? [] { didSet { ud.set(latestNotes, forKey: "latestNotes") } }
+    @Published var dismissedTag: String = ud.string(forKey: "dismissedTag") ?? "" { didSet { ud.set(dismissedTag, forKey: "dismissedTag"); notifyStatus() } }
+
+    /// баннер «что нового» показываем, пока версию не скрыли
+    var showUpdateBanner: Bool { return updateAvailable && dismissedTag != (latestTag ?? "") }
+
+    /// описание релиза с GitHub → короткий список (без заголовков и блока про установку)
+    static func parseNotes(_ body: String) -> [String] {
+        var out: [String] = []
+        for raw in body.replacingOccurrences(of: "\r", with: "").components(separatedBy: "\n") {
+            var l = raw.trimmingCharacters(in: .whitespaces)
+            if l.isEmpty { continue }
+            if l.hasPrefix("#") {
+                let h = l.drop { $0 == "#" || $0 == " " }.lowercased()
+                if h.contains("установ") || h.contains("install") { break }
+                continue
+            }
+            if l.hasPrefix("- ") || l.hasPrefix("* ") || l.hasPrefix("• ") { l = String(l.dropFirst(2)) }
+            else if l.hasPrefix("-") || l.hasPrefix("*") { l = String(l.dropFirst(1)).trimmingCharacters(in: .whitespaces) }
+            l = l.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+            // [текст](ссылка) → текст
+            while let a = l.range(of: "]("), let o = l[..<a.lowerBound].lastIndex(of: "["), let c = l[a.upperBound...].firstIndex(of: ")") {
+                let txt = String(l[l.index(after: o)..<a.lowerBound])
+                l.replaceSubrange(o...c, with: txt)
+            }
+            l = l.trimmingCharacters(in: .whitespaces)
+            if !l.isEmpty { out.append(l) }
+            if out.count >= 8 { break }
+        }
+        return out
+    }
+    @Published var checkingUpdate = false
+    @Published var updateMsg: String? = nil
+    @Published var autoUpdateCheck: Bool = udBool("autoUpdateCheck", true) { didSet { ud.set(autoUpdateCheck, forKey: "autoUpdateCheck") } }
+    @Published var lastUpdateCheck: Date? = ud.object(forKey: "lastUpdateCheck") as? Date
+
+    static func versionParts(_ v: String) -> [Int] {
+        var t = v.trimmingCharacters(in: .whitespaces)
+        if t.lowercased().hasPrefix("v") { t.removeFirst() }
+        return t.split(separator: ".").map { Int($0.prefix { $0.isNumber }) ?? 0 }
+    }
+
+    static func agoText(_ d: Date) -> String {
+        let sec = Int(Date().timeIntervalSince(d))
+        if sec < 60 { return "только что" }
+        if sec < 3600 { return "\(sec / 60) мин назад" }
+        if sec < 86400 { return "\(sec / 3600) ч назад" }
+        return "\(sec / 86400) дн назад"
+    }
+
+    static func isNewer(_ a: String, than b: String) -> Bool {
+        let x = versionParts(a), y = versionParts(b)
+        for i in 0..<max(x.count, y.count) {
+            let p = i < x.count ? x[i] : 0, q = i < y.count ? y[i] : 0
+            if p != q { return p > q }
+        }
+        return false
+    }
+
+    var updateAvailable: Bool {
+        guard let t = latestTag else { return false }
+        return HomeModel.isNewer(t, than: appVersion)
+    }
+
+    /// спрашиваем у GitHub последний релиз (ничего не устанавливаем)
+    func checkUpdate(manual: Bool) {
+        if checkingUpdate { return }
+        checkingUpdate = true
+        if manual { updateMsg = nil }
+        guard let url = URL(string: "https://api.github.com/repos/Lenar111/yahome/releases/latest") else { checkingUpdate = false; return }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 15
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        req.setValue("MoyDom/" + appVersion, forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            var json: [String: Any]?
+            if let d = data { json = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] }
+            DispatchQueue.main.async {
+                guard let s = self else { return }
+                s.checkingUpdate = false
+                if code == 200, let j = json, let tag = j["tag_name"] as? String {
+                    s.latestTag = tag
+                    s.latestURL = (j["html_url"] as? String) ?? "https://github.com/Lenar111/yahome/releases/latest"
+                    s.latestNotes = HomeModel.parseNotes((j["body"] as? String) ?? "")
+                    s.notifyStatus()
+                    s.lastUpdateCheck = Date()
+                    ud.set(s.lastUpdateCheck, forKey: "lastUpdateCheck")
+                    if manual { s.updateMsg = s.updateAvailable ? nil : "У вас последняя версия" }
+                } else if manual {
+                    s.updateMsg = code == 0 ? "Нет связи с GitHub" : (code == 404 ? "Релизов пока нет" : "Не получилось проверить (\(code))")
+                }
+            }
+        }.resume()
+    }
+
+    /// раз в сутки, без вопросов и установки
+    func autoCheckUpdateIfNeeded() {
+        guard autoUpdateCheck else { return }
+        if let l = lastUpdateCheck, Date().timeIntervalSince(l) < 24 * 3600 { return }
+        checkUpdate(manual: false)
+    }
+
+    // проверка «включено»: список /user/info у Яндекса бывает устаревшим
+    var lastVerify = Date.distantPast
+    func verifyOn() {
+        guard token != nil, Date().timeIntervalSince(lastVerify) > 20 else { return }
+        lastVerify = Date()
+        let ids = allDevices.filter { $0.on == true && $0.online && !$0.isKettle && !$0.isProcess }.map { $0.id }.prefix(12)
+        for (i, id) in ids.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25 * Double(i)) { [weak self] in self?.pollDevice(id) }
+        }
+    }
     var heatingIDs: Set<String> = []
     var pending: [String: (Date, (inout Dev) -> Void)] = [:]
     var openWork: DispatchWorkItem?
@@ -1559,13 +1748,31 @@ final class HomeModel: ObservableObject {
         // двигаем среди комнат текущего дома, перескакивая чужие
         let mine = Set(scopedRooms.map { $0.id })
         var j = i
-        repeat { j += by } while j >= 0 && j < ids.count && !mine.contains(ids[j])
-        if by == -1000 { j = 0 }
-        guard j >= 0 && j < ids.count else { return }
+        if by <= -1000 {
+            guard let f = ids.firstIndex(where: { mine.contains($0) }) else { return }
+            j = f
+        } else if by >= 1000 {
+            guard let l = ids.lastIndex(where: { mine.contains($0) }) else { return }
+            j = l
+        } else {
+            repeat { j += by } while j >= 0 && j < ids.count && !mine.contains(ids[j])
+        }
+        guard j >= 0 && j < ids.count, j != i else { return }
         let x = ids.remove(at: i)
         ids.insert(x, at: j)
         roomOrder = ids
         rooms = ordered(rooms)
+    }
+
+    /// перетаскивание: комната встаёт на место той, над которой её держат
+    func moveRoomTo(_ dragged: String, _ target: String) {
+        guard dragged != target else { return }
+        var ids = rooms.map { $0.id }
+        guard let i = ids.firstIndex(of: dragged), let j = ids.firstIndex(of: target) else { return }
+        let x = ids.remove(at: i)
+        ids.insert(x, at: j)
+        roomOrder = ids
+        withAnimation(.easeInOut(duration: 0.18)) { rooms = ordered(rooms) }
     }
 
     func resetRoomOrder() {
@@ -1687,6 +1894,7 @@ final class HomeModel: ObservableObject {
             if code == 200, let j = json {
                 s.error = nil
                 s.parse(j)
+                s.verifyOn()
             } else {
                 s.error = code == 0 ? "Нет связи с Яндексом" : "Ошибка Яндекса (\(code))"
             }
@@ -1722,7 +1930,7 @@ final class HomeModel: ObservableObject {
             return
         }
         busyTicks = 0
-        let iv: TimeInterval = isOpen ? 15 : 60
+        let iv: TimeInterval = isOpen ? 6 : 60
         timer = Timer.scheduledTimer(withTimeInterval: iv, repeats: false) { [weak self] _ in self?.refresh() }
     }
 
@@ -2330,10 +2538,12 @@ final class HomeModel: ObservableObject {
         isOpen = true
         refresh()
         schedule()
+        autoCheckUpdateIfNeeded()
     }
 
     func closed() {
         isOpen = false
+        draggingRoom = nil
         quickID = nil
         let noneIDs = Set(rooms.filter { $0.id.hasPrefix("none") || $0.name.lowercased().contains("не подключ") }.map { $0.id })
         collapsed = collapsed.filter { !noneIDs.contains($0) }
@@ -2364,8 +2574,8 @@ func panelHeight() -> CGFloat {
 }
 
 let pageBG = dyn(rgb(255, 255, 255), rgb(28, 28, 31))
-let tileBG = dyn(rgb(244, 245, 248), rgb(44, 44, 49))
-let tileHover = dyn(rgb(237, 238, 243), rgb(54, 54, 60))
+let tileBG = dyn(rgb(248, 249, 252), rgb(44, 44, 49))
+let tileHover = dyn(rgb(240, 242, 248), rgb(54, 54, 60))
 let plateBG = Color(red: 242 / 255, green: 243 / 255, blue: 245 / 255)
 let softBtn = dyn(rgb(234, 235, 241), rgb(64, 64, 72))
 let cardBG = dyn(rgb(247, 248, 250), rgb(40, 40, 45))
@@ -2378,19 +2588,19 @@ struct Cat {
 }
 
 let allCats: [Cat] = [
-    Cat(key: "light", title: "Свет", symbol: "lightbulb.fill", tint: Color(red: 1.0, green: 0.70, blue: 0.10)),
-    Cat(key: "socket", title: "Розетки", symbol: "powerplug.fill", tint: Color(red: 0.20, green: 0.72, blue: 0.45)),
-    Cat(key: "switch", title: "Выключатели", symbol: "switch.2", tint: Color(red: 0.40, green: 0.50, blue: 0.95)),
-    Cat(key: "climate", title: "Климат", symbol: "thermometer.medium", tint: Color(red: 0.12, green: 0.70, blue: 0.80)),
-    Cat(key: "media", title: "ТВ и колонки", symbol: "tv.fill", tint: Color(red: 0.30, green: 0.55, blue: 0.95)),
-    Cat(key: "kitchen", title: "Кухня", symbol: "fork.knife", tint: Color(red: 0.95, green: 0.52, blue: 0.22)),
-    Cat(key: "cleaning", title: "Уборка и стирка", symbol: "sparkles", tint: Color(red: 0.25, green: 0.65, blue: 0.85)),
-    Cat(key: "cover", title: "Шторы и двери", symbol: "door.left.hand.closed", tint: Color(red: 0.62, green: 0.48, blue: 0.85)),
-    Cat(key: "camera", title: "Камеры", symbol: "video.fill", tint: Color(red: 0.88, green: 0.35, blue: 0.45)),
-    Cat(key: "meter", title: "Счётчики", symbol: "gauge.medium", tint: Color(red: 0.35, green: 0.62, blue: 0.80)),
-    Cat(key: "pet", title: "Питомцы", symbol: "pawprint.fill", tint: Color(red: 0.80, green: 0.55, blue: 0.35)),
-    Cat(key: "sensor", title: "Датчики", symbol: "sensor.tag.radiowaves.forward.fill", tint: Color(red: 0.55, green: 0.60, blue: 0.70)),
-    Cat(key: "other", title: "Прочее", symbol: "circle.grid.2x2.fill", tint: Color(red: 0.60, green: 0.55, blue: 0.80))
+    Cat(key: "light", title: "Свет", symbol: "lightbulb.fill", tint: Color(hue: 0.11, saturation: 0.7, brightness: 0.98)),
+    Cat(key: "socket", title: "Розетки", symbol: "powerplug.fill", tint: Color(hue: 0.38, saturation: 0.62, brightness: 0.8)),
+    Cat(key: "switch", title: "Выключатели", symbol: "switch.2", tint: Color(hue: 0.66, saturation: 0.5, brightness: 0.92)),
+    Cat(key: "climate", title: "Климат", symbol: "thermometer.medium", tint: Color(hue: 0.5, saturation: 0.62, brightness: 0.82)),
+    Cat(key: "media", title: "ТВ и колонки", symbol: "tv.fill", tint: Color(hue: 0.59, saturation: 0.58, brightness: 0.92)),
+    Cat(key: "kitchen", title: "Кухня", symbol: "fork.knife", tint: Color(hue: 0.05, saturation: 0.6, brightness: 0.95)),
+    Cat(key: "cleaning", title: "Уборка и стирка", symbol: "sparkles", tint: Color(hue: 0.54, saturation: 0.52, brightness: 0.88)),
+    Cat(key: "cover", title: "Шторы и двери", symbol: "door.left.hand.closed", tint: Color(hue: 0.75, saturation: 0.45, brightness: 0.86)),
+    Cat(key: "camera", title: "Камеры", symbol: "video.fill", tint: Color(hue: 0.97, saturation: 0.55, brightness: 0.9)),
+    Cat(key: "meter", title: "Счётчики", symbol: "gauge.medium", tint: Color(hue: 0.56, saturation: 0.45, brightness: 0.82)),
+    Cat(key: "pet", title: "Питомцы", symbol: "pawprint.fill", tint: Color(hue: 0.08, saturation: 0.5, brightness: 0.82)),
+    Cat(key: "sensor", title: "Датчики", symbol: "sensor.tag.radiowaves.forward.fill", tint: Color(hue: 0.6, saturation: 0.2, brightness: 0.72)),
+    Cat(key: "other", title: "Прочее", symbol: "circle.grid.2x2.fill", tint: Color(hue: 0.72, saturation: 0.3, brightness: 0.84))
 ]
 
 func catFor(_ key: String) -> Cat {
@@ -2472,31 +2682,705 @@ struct DevImage: View {
     /// Цвет режима показывает только фон плитки, сама иконка не перекрашивается.
     var gray: Bool { return !d.online || d.on == false }
 
+    /// размеры плашки в долях от клетки: ширина, высота, скругление
+    static func geometry(_ key: String?) -> (w: CGFloat, h: CGFloat, round: CGFloat) {
+        switch key ?? "" {
+        case "lite": return (0.50, 0.50, 0.5)
+        case "mini": return (0.64, 0.64, 0.5)
+        case "station", "street_gray", "street_black": return (0.76, 0.86, 0.30)
+        case "max": return (0.96, 0.70, 0.26)
+        default: return (0.84, 0.84, 0.28)
+        }
+    }
+
+    static func symbolFor(_ d: Dev) -> String {
+        switch d.iconKey ?? "" {
+        case "lite", "mini": return firstSymbol(["homepod.mini.fill", "hifispeaker.fill"])
+        case "station", "street_gray", "street_black": return firstSymbol(["homepod.fill", "hifispeaker.fill"])
+        case "max": return firstSymbol(["hifispeaker.2.fill", "hifispeaker.fill"])
+        default: return d.symbol
+        }
+    }
+
     var body: some View {
         ZStack {
             if let k = d.iconKey, let img = loadIcon(k) {
                 Image(nsImage: img).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
                     .saturation(gray ? 0 : 1.2)
                     .shadow(color: Color.black.opacity(0.10), radius: Swift.max(1.5, size * 0.045), x: 0, y: size * 0.035)
+            } else if let k = d.iconKey, VP.supports(k) {
+                VectorIcon(key: k, size: size, lit: !gray, off: gray)
             } else {
-                // нет готовой картинки: плашка цвета категории и крупный белый значок — читается с первого взгляда
+                // нет готовой картинки: аккуратная плашка цвета категории со значком.
+                // Станции различаются размером и формой: Лайт — маленький кружок, Мини — побольше,
+                // Станция — вытянутая, Макс — самая большая и широкая.
                 let tint = catFor(d.cat).tint
-                let plate = RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                plate.fill(Color.white)
-                    .frame(width: size * 0.84, height: size * 0.84)
-                plate.fill(LinearGradient(colors: gray ? [Color(white: 0.80), Color(white: 0.64)] : [tint.opacity(0.80), tint],
-                                          startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .overlay(plate.stroke(Color.white.opacity(0.55), lineWidth: 1))
-                    .shadow(color: (gray ? Color.black : tint).opacity(0.28), radius: Swift.max(2, size * 0.07), x: 0, y: size * 0.045)
-                    .frame(width: size * 0.84, height: size * 0.84)
-                Image(systemName: d.symbol).font(.system(size: size * 0.44, weight: .semibold))
-                    .foregroundColor(Color.white)
-                    .shadow(color: Color.black.opacity(0.18), radius: 1.5, x: 0, y: 1)
+                let g = DevImage.geometry(d.iconKey)
+                let w = size * g.w, h = size * g.h
+                let r = Swift.min(w, h) * g.round
+                let plate = RoundedRectangle(cornerRadius: r, style: .continuous)
+                plate.fill(LinearGradient(colors: gray ? [Color(white: 0.84), Color(white: 0.70)] : [tint.opacity(0.78), tint],
+                                          startPoint: .top, endPoint: .bottom))
+                    .overlay(plate.stroke(Color.white.opacity(gray ? 0.3 : 0.45), lineWidth: 0.8))
+                    .overlay(
+                        // мягкий блик сверху
+                        plate.fill(LinearGradient(colors: [Color.white.opacity(0.28), Color.white.opacity(0)], startPoint: .top, endPoint: .center))
+                    )
+                    .shadow(color: (gray ? Color.black : tint).opacity(gray ? 0.12 : 0.30), radius: Swift.max(2, size * 0.06), x: 0, y: size * 0.04)
+                    .frame(width: w, height: h)
+                Image(systemName: DevImage.symbolFor(d)).font(.system(size: Swift.min(w, h) * 0.52, weight: .semibold))
+                    .foregroundColor(Color.white.opacity(gray ? 0.9 : 1))
             }
         }
         .frame(width: size, height: size)
         .opacity(d.online ? 1 : 0.5)
     }
+}
+
+/// нарисованная иконка устройства: набор слоёв с градиентами, координаты в долях клетки
+struct VP {
+    let k: Int            // 0 — скруглённый прямоугольник, 1 — эллипс
+    let cx: CGFloat, cy: CGFloat, w: CGFloat, h: CGFloat, rad: CGFloat
+    let dir: Int          // 0 сверху вниз, 1 слева направо, 2 радиальный, 3 по диагонали
+    let st: [CGFloat]     // позиция, r, g, b, прозрачность
+    var blur: CGFloat = 0
+    var lit: Int = 0      // 1 — только включено, 2 — только выключено
+    var stroke: CGFloat = 0
+    var rot: CGFloat = 0
+    var ring: [CGFloat] = []
+    var rw: CGFloat = 0.022
+
+    var stops: [Gradient.Stop] {
+        var out: [Gradient.Stop] = []
+        var i = 0
+        while i + 4 < st.count {
+            out.append(Gradient.Stop(color: Color(red: st[i + 1] / 255, green: st[i + 2] / 255, blue: st[i + 3] / 255).opacity(Double(st[i + 4])),
+                                     location: st[i]))
+            i += 5
+        }
+        return out
+    }
+
+    static func layers(_ key: String) -> [VP] {
+        var a: [VP] = []
+        switch key {
+        case "station", "street_black", "music":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.483, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.53, w: 0.46, h: 0.66, rad: 0.06, dir: 1, st: [0, 28, 28, 32, 1, 0.28, 58, 58, 66, 1, 0.55, 90, 90, 100, 1, 0.82, 58, 58, 66, 1, 1, 28, 28, 32, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.83, w: 0.4508, h: 0.07, rad: 0.03, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0.3]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.2, w: 0.46, h: 0.1196, rad: 0, dir: 2, st: [0, 74, 74, 84, 1, 1, 42, 42, 48, 1], stroke: 0.25))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.2, w: 0.322, h: 0.0828, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.2, w: 0.3404, h: 0.0874, rad: 0, dir: 0, st: [0, 150, 110, 255, 0, 1, 150, 110, 255, 0], lit: 1, ring: [150, 110, 255]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.2, w: 0.3404, h: 0.0874, rad: 0, dir: 0, st: [0, 110, 110, 118, 0, 1, 110, 110, 118, 0], lit: 2, ring: [105, 105, 112]))
+        case "street_gray":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.483, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.53, w: 0.46, h: 0.66, rad: 0.06, dir: 1, st: [0, 110, 110, 118, 1, 0.28, 154, 154, 164, 1, 0.55, 196, 196, 204, 1, 0.82, 154, 154, 164, 1, 1, 110, 110, 118, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.83, w: 0.4508, h: 0.07, rad: 0.03, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0.3]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.2, w: 0.46, h: 0.1196, rad: 0, dir: 2, st: [0, 184, 184, 192, 1, 1, 138, 138, 146, 1], stroke: 0.25))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.2, w: 0.322, h: 0.0828, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.2, w: 0.3404, h: 0.0874, rad: 0, dir: 0, st: [0, 150, 110, 255, 0, 1, 150, 110, 255, 0], lit: 1, ring: [150, 110, 255]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.2, w: 0.3404, h: 0.0874, rad: 0, dir: 0, st: [0, 110, 110, 118, 0, 1, 110, 110, 118, 0], lit: 2, ring: [105, 105, 112]))
+        case "mini":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.82, w: 0.651, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.65, w: 0.62, h: 0.3, rad: 0.06, dir: 1, st: [0, 122, 125, 132, 1, 0.28, 164, 167, 174, 1, 0.55, 207, 209, 214, 1, 0.82, 164, 167, 174, 1, 1, 122, 125, 132, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.77, w: 0.6076, h: 0.07, rad: 0.03, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0.3]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.62, h: 0.1612, rad: 0, dir: 2, st: [0, 196, 198, 204, 1, 1, 154, 157, 164, 1], stroke: 0.25))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.434, h: 0.1116, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.4588, h: 0.1178, rad: 0, dir: 0, st: [0, 150, 110, 255, 0, 1, 150, 110, 255, 0], lit: 1, ring: [150, 110, 255]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.4588, h: 0.1178, rad: 0, dir: 0, st: [0, 110, 110, 118, 0, 1, 110, 110, 118, 0], lit: 2, ring: [105, 105, 112]))
+        case "lite":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.84, w: 0.42, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.69, w: 0.4, h: 0.26, rad: 0.06, dir: 1, st: [0, 216, 210, 198, 1, 0.28, 239, 233, 222, 1, 0.55, 255, 250, 240, 1, 0.82, 239, 233, 222, 1, 1, 216, 210, 198, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.79, w: 0.392, h: 0.07, rad: 0.03, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0.3]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.56, w: 0.4, h: 0.104, rad: 0, dir: 2, st: [0, 255, 250, 240, 1, 1, 227, 220, 208, 1], stroke: 0.25))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.56, w: 0.28, h: 0.072, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.56, w: 0.296, h: 0.076, rad: 0, dir: 0, st: [0, 150, 110, 255, 0, 1, 150, 110, 255, 0], lit: 1, ring: [150, 110, 255]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.56, w: 0.296, h: 0.076, rad: 0, dir: 0, st: [0, 110, 110, 118, 0, 1, 110, 110, 118, 0], lit: 2, ring: [105, 105, 112]))
+        case "max":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.8, w: 0.95, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.56, w: 0.92, h: 0.4, rad: 0.12, dir: 1, st: [0, 20, 20, 24, 1, 0.28, 46, 46, 54, 1, 0.55, 74, 74, 84, 1, 0.82, 46, 46, 54, 1, 1, 20, 20, 24, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.41, w: 0.8924, h: 0.1, rad: 0.05, dir: 0, st: [0, 255, 255, 255, 0.22, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.73, w: 0.8832, h: 0.08, rad: 0.04, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0.35]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.49, w: 0.5704, h: 0.035, rad: 0.0175, dir: 1, st: [0, 150, 110, 255, 0, 0.5, 170, 130, 255, 1, 1, 150, 110, 255, 0], blur: 0.004, lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.49, w: 0.5704, h: 0.03, rad: 0.015, dir: 1, st: [0, 120, 120, 128, 0, 0.5, 120, 120, 128, 0.8, 1, 120, 120, 128, 0], lit: 2))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.63, w: 0.16, h: 0.16, rad: 0, dir: 2, st: [0, 70, 70, 80, 1, 1, 30, 30, 36, 1], stroke: 0.2))
+        case "bulb":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.9, w: 0.34, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.36, w: 0.78, h: 0.78, rad: 0, dir: 2, st: [0, 255, 214, 120, 0.55, 1, 255, 214, 120, 0], blur: 0.04, lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.36, w: 0.5, h: 0.5, rad: 0, dir: 2, st: [0, 255, 252, 225, 1, 0.55, 255, 224, 130, 1, 1, 255, 176, 60, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.36, w: 0.5, h: 0.5, rad: 0, dir: 2, st: [0, 250, 251, 253, 1, 0.6, 226, 230, 238, 1, 1, 188, 194, 206, 1], lit: 2, stroke: 0.5))
+            a.append(VP(k: 1, cx: 0.42, cy: 0.26, w: 0.16, h: 0.1, rad: 0, dir: 0, st: [0, 255, 255, 255, 0.85, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.64, w: 0.26, h: 0.14, rad: 0.04, dir: 0, st: [0, 223, 226, 232, 1, 1, 185, 190, 200, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.74, w: 0.26, h: 0.12, rad: 0.03, dir: 1, st: [0, 140, 145, 156, 1, 0.28, 214, 217, 224, 1, 0.55, 244, 245, 248, 1, 0.82, 214, 217, 224, 1, 1, 140, 145, 156, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.72, w: 0.26, h: 0.012, rad: 0.006, dir: 1, st: [0, 0, 0, 0, 0.25, 1, 0, 0, 0, 0.25]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.76, w: 0.26, h: 0.012, rad: 0.006, dir: 1, st: [0, 0, 0, 0, 0.25, 1, 0, 0, 0, 0.25]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.83, w: 0.12, h: 0.05, rad: 0.025, dir: 0, st: [0, 74, 77, 86, 1, 1, 42, 44, 50, 1]))
+        case "lamp_white":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.9, w: 0.5, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.46, h: 0.07, rad: 0, dir: 2, st: [0, 91, 95, 106, 1, 1, 45, 48, 54, 1], stroke: 0.2))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.6, w: 0.045, h: 0.5, rad: 0.02, dir: 1, st: [0, 125, 130, 142, 1, 0.28, 201, 204, 212, 1, 0.55, 236, 238, 242, 1, 0.82, 201, 204, 212, 1, 1, 125, 130, 142, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.6, h: 0.5, rad: 0, dir: 2, st: [0, 255, 220, 140, 0.5, 1, 255, 220, 140, 0], blur: 0.04, lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.56, h: 0.3, rad: 0.14, dir: 1, st: [0, 220, 223, 230, 1, 0.3, 251, 251, 253, 1, 0.7, 251, 251, 253, 1, 1, 220, 223, 230, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.43, w: 0.4, h: 0.07, rad: 0, dir: 0, st: [0, 255, 236, 180, 1, 1, 255, 200, 110, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.43, w: 0.4, h: 0.07, rad: 0, dir: 0, st: [0, 213, 216, 223, 1, 1, 180, 185, 196, 1], lit: 2))
+        case "lamp_pink":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.9, w: 0.5, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.46, h: 0.07, rad: 0, dir: 2, st: [0, 91, 95, 106, 1, 1, 45, 48, 54, 1], stroke: 0.2))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.6, w: 0.045, h: 0.5, rad: 0.02, dir: 1, st: [0, 125, 130, 142, 1, 0.28, 201, 204, 212, 1, 0.55, 236, 238, 242, 1, 0.82, 201, 204, 212, 1, 1, 125, 130, 142, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.6, h: 0.5, rad: 0, dir: 2, st: [0, 255, 150, 190, 0.5, 1, 255, 150, 190, 0], blur: 0.04, lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.56, h: 0.3, rad: 0.14, dir: 1, st: [0, 229, 188, 203, 1, 0.3, 249, 230, 238, 1, 0.7, 249, 230, 238, 1, 1, 229, 188, 203, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.43, w: 0.4, h: 0.07, rad: 0, dir: 0, st: [0, 255, 236, 180, 1, 1, 255, 200, 110, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.43, w: 0.4, h: 0.07, rad: 0, dir: 0, st: [0, 213, 216, 223, 1, 1, 180, 185, 196, 1], lit: 2))
+        case "lamp_ambi":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.9, w: 0.5, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.46, h: 0.07, rad: 0, dir: 2, st: [0, 91, 95, 106, 1, 1, 45, 48, 54, 1], stroke: 0.2))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.6, w: 0.045, h: 0.5, rad: 0.02, dir: 1, st: [0, 125, 130, 142, 1, 0.28, 201, 204, 212, 1, 0.55, 236, 238, 242, 1, 0.82, 201, 204, 212, 1, 1, 125, 130, 142, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.6, h: 0.5, rad: 0, dir: 2, st: [0, 190, 150, 255, 0.5, 1, 190, 150, 255, 0], blur: 0.04, lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.56, h: 0.3, rad: 0.14, dir: 1, st: [0, 214, 200, 240, 1, 0.3, 244, 236, 255, 1, 0.7, 244, 236, 255, 1, 1, 214, 200, 240, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.43, w: 0.4, h: 0.07, rad: 0, dir: 0, st: [0, 255, 236, 180, 1, 1, 255, 200, 110, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.43, w: 0.4, h: 0.07, rad: 0, dir: 0, st: [0, 213, 216, 223, 1, 1, 180, 185, 196, 1], lit: 2))
+        case "strip":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.86, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.55, w: 0.98, h: 0.6, rad: 0, dir: 2, st: [0, 255, 225, 140, 0.45, 1, 255, 225, 140, 0], blur: 0.05, lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.645, w: 0.9, h: 0.42, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], ring: [176, 181, 194], rw: 0.085))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.62, w: 0.9, h: 0.42, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], ring: [246, 247, 250], rw: 0.085))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.608, w: 0.9, h: 0.42, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], ring: [255, 255, 255], rw: 0.03))
+            a.append(VP(k: 1, cx: 0.928, cy: 0.6849, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.928, cy: 0.6849, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.8641, cy: 0.7434, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.8641, cy: 0.7434, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.7645, cy: 0.7899, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.7645, cy: 0.7899, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.6391, cy: 0.8197, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.6391, cy: 0.8197, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.83, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.83, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.3609, cy: 0.8197, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.3609, cy: 0.8197, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.2355, cy: 0.7899, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.2355, cy: 0.7899, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.1359, cy: 0.7434, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.1359, cy: 0.7434, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.072, cy: 0.6849, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.072, cy: 0.6849, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.525, w: 0.78, h: 0.35, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], ring: [176, 181, 194], rw: 0.085))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.78, h: 0.35, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], ring: [246, 247, 250], rw: 0.085))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.488, w: 0.78, h: 0.35, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], ring: [255, 255, 255], rw: 0.03))
+            a.append(VP(k: 1, cx: 0.8709, cy: 0.5541, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.8709, cy: 0.5541, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.8155, cy: 0.6029, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.8155, cy: 0.6029, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.7292, cy: 0.6416, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.7292, cy: 0.6416, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.6205, cy: 0.6664, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.6205, cy: 0.6664, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.675, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.675, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.3795, cy: 0.6664, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.3795, cy: 0.6664, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.2708, cy: 0.6416, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.2708, cy: 0.6416, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.1845, cy: 0.6029, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.1845, cy: 0.6029, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.1291, cy: 0.5541, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.1291, cy: 0.5541, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.405, w: 0.64, h: 0.28, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], ring: [176, 181, 194], rw: 0.085))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.38, w: 0.64, h: 0.28, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], ring: [246, 247, 250], rw: 0.085))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.368, w: 0.64, h: 0.28, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0], ring: [255, 255, 255], rw: 0.03))
+            a.append(VP(k: 1, cx: 0.8043, cy: 0.4233, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.8043, cy: 0.4233, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.7589, cy: 0.4623, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.7589, cy: 0.4623, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.6881, cy: 0.4933, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.6881, cy: 0.4933, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.5989, cy: 0.5131, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5989, cy: 0.5131, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.52, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.52, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.4011, cy: 0.5131, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.4011, cy: 0.5131, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.3119, cy: 0.4933, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.3119, cy: 0.4933, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.2411, cy: 0.4623, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.2411, cy: 0.4623, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.1957, cy: 0.4233, w: 0.034, h: 0.034, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.45, 255, 245, 170, 1, 1, 255, 214, 90, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.1957, cy: 0.4233, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 236, 238, 243, 1, 1, 169, 174, 187, 1], lit: 2))
+            a.append(VP(k: 0, cx: 0.8, cy: 0.7, w: 0.1, h: 0.06, rad: 0.015, dir: 0, st: [0, 255, 255, 255, 1, 1, 212, 216, 225, 1], stroke: 0.5))
+        case "tv":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.86, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.4, w: 0.9, h: 0.56, rad: 0.04, dir: 0, st: [0, 44, 47, 56, 1, 1, 16, 18, 22, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.4, w: 0.85, h: 0.5, rad: 0.025, dir: 3, st: [0, 59, 111, 214, 1, 0.5, 111, 75, 214, 1, 1, 192, 79, 176, 1], lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.4, w: 0.85, h: 0.5, rad: 0.025, dir: 3, st: [0, 29, 32, 40, 1, 1, 10, 11, 14, 1], lit: 2))
+            a.append(VP(k: 0, cx: 0.36, cy: 0.3, w: 0.55, h: 0.2, rad: 0.02, dir: 3, st: [0, 255, 255, 255, 0.16, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.73, w: 0.12, h: 0.08, rad: 0.01, dir: 1, st: [0, 58, 61, 70, 1, 0.28, 124, 128, 140, 1, 0.55, 162, 166, 178, 1, 0.82, 124, 128, 140, 1, 1, 58, 61, 70, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.8, w: 0.38, h: 0.045, rad: 0, dir: 0, st: [0, 142, 146, 158, 1, 1, 74, 77, 86, 1]))
+        case "kettle":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.87, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.83, w: 0.54, h: 0.07, rad: 0.03, dir: 0, st: [0, 42, 44, 50, 1, 1, 18, 19, 22, 1]))
+            a.append(VP(k: 0, cx: 0.78, cy: 0.54, w: 0.07, h: 0.34, rad: 0.035, dir: 1, st: [0, 26, 27, 31, 1, 0.28, 58, 60, 68, 1, 0.55, 82, 85, 94, 1, 0.82, 58, 60, 68, 1, 1, 26, 27, 31, 1]))
+            a.append(VP(k: 0, cx: 0.46, cy: 0.54, w: 0.46, h: 0.56, rad: 0.13, dir: 1, st: [0, 154, 160, 172, 1, 0.28, 230, 232, 238, 1, 0.55, 255, 255, 255, 1, 0.82, 230, 232, 238, 1, 1, 154, 160, 172, 1], stroke: 0.4))
+            a.append(VP(k: 0, cx: 0.46, cy: 0.3, w: 0.34, h: 0.07, rad: 0.03, dir: 1, st: [0, 43, 45, 51, 1, 0.28, 74, 77, 86, 1, 0.55, 106, 110, 120, 1, 0.82, 74, 77, 86, 1, 1, 43, 45, 51, 1]))
+            a.append(VP(k: 1, cx: 0.46, cy: 0.255, w: 0.08, h: 0.05, rad: 0, dir: 2, st: [0, 85, 88, 95, 1, 1, 36, 38, 43, 1]))
+            a.append(VP(k: 0, cx: 0.36, cy: 0.58, w: 0.045, h: 0.3, rad: 0.022, dir: 0, st: [0, 120, 200, 255, 0.85, 1, 70, 150, 230, 0.85], lit: 1))
+            a.append(VP(k: 0, cx: 0.36, cy: 0.58, w: 0.045, h: 0.3, rad: 0.022, dir: 0, st: [0, 150, 170, 190, 0.5, 1, 110, 130, 150, 0.5], lit: 2))
+            a.append(VP(k: 1, cx: 0.4, cy: 0.45, w: 0.1, h: 0.22, rad: 0, dir: 0, st: [0, 255, 255, 255, 0.55, 1, 255, 255, 255, 0]))
+        case "ac":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.74, w: 0.86, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.42, w: 0.92, h: 0.36, rad: 0.09, dir: 0, st: [0, 255, 255, 255, 1, 1, 217, 221, 229, 1], stroke: 0.6))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.88, h: 0.08, rad: 0.04, dir: 0, st: [0, 255, 255, 255, 0.9, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.53, w: 0.8, h: 0.07, rad: 0.03, dir: 0, st: [0, 86, 90, 102, 1, 1, 43, 45, 52, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.59, w: 0.76, h: 0.025, rad: 0.012, dir: 0, st: [0, 182, 187, 199, 1, 1, 138, 143, 156, 1]))
+            a.append(VP(k: 1, cx: 0.84, cy: 0.35, w: 0.04, h: 0.04, rad: 0, dir: 2, st: [0, 150, 255, 190, 1, 1, 40, 200, 110, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.84, cy: 0.35, w: 0.04, h: 0.04, rad: 0, dir: 2, st: [0, 180, 185, 196, 1, 1, 143, 148, 161, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.78, w: 0.5, h: 0.1, rad: 0, dir: 0, st: [0, 150, 200, 255, 0.45, 1, 150, 200, 255, 0], blur: 0.03, lit: 1))
+        case "vacuum":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.8, w: 0.74, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.78, h: 0.78, rad: 0, dir: 2, st: [0, 106, 110, 122, 1, 0.6, 58, 61, 70, 1, 1, 28, 29, 34, 1], stroke: 0.3))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.62, h: 0.62, rad: 0, dir: 3, st: [0, 90, 94, 106, 1, 1, 42, 44, 51, 1], stroke: 0.25))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.4, w: 0.22, h: 0.22, rad: 0, dir: 2, st: [0, 154, 158, 169, 1, 1, 59, 62, 71, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.4, w: 0.1, h: 0.1, rad: 0, dir: 2, st: [0, 42, 44, 51, 1, 1, 14, 15, 18, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.64, w: 0.07, h: 0.07, rad: 0, dir: 2, st: [0, 180, 160, 255, 1, 1, 120, 90, 230, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.64, w: 0.07, h: 0.07, rad: 0, dir: 2, st: [0, 143, 148, 161, 1, 1, 91, 95, 107, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.34, cy: 0.28, w: 0.2, h: 0.1, rad: 0, dir: 0, st: [0, 255, 255, 255, 0.22, 1, 255, 255, 255, 0]))
+        case "purifier":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.9, w: 0.528, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.44, h: 0.76, rad: 0.12, dir: 1, st: [0, 201, 205, 214, 1, 0.28, 255, 255, 255, 1, 0.55, 255, 255, 255, 1, 0.82, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.16, w: 0.308, h: 0.04, rad: 0.02, dir: 0, st: [0, 157, 162, 174, 1, 1, 201, 205, 214, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.4, w: 0.26, h: 0.025, rad: 0.012, dir: 0, st: [0, 174, 179, 191, 1, 1, 217, 220, 227, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.46, w: 0.26, h: 0.025, rad: 0.012, dir: 0, st: [0, 174, 179, 191, 1, 1, 217, 220, 227, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.52, w: 0.26, h: 0.025, rad: 0.012, dir: 0, st: [0, 174, 179, 191, 1, 1, 217, 220, 227, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.7, w: 0.06, h: 0.06, rad: 0, dir: 2, st: [0, 150, 255, 200, 1, 1, 40, 190, 130, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.7, w: 0.06, h: 0.06, rad: 0, dir: 2, st: [0, 201, 205, 214, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "humidifier":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.58, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.14, w: 0.4, h: 0.26, rad: 0, dir: 0, st: [0, 190, 225, 255, 0.7, 1, 190, 225, 255, 0], blur: 0.03, lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.58, w: 0.46, h: 0.62, rad: 0.19, dir: 1, st: [0, 201, 205, 214, 1, 0.28, 255, 255, 255, 1, 0.55, 255, 255, 255, 1, 0.82, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.26, h: 0.05, rad: 0.025, dir: 0, st: [0, 143, 148, 161, 1, 1, 185, 189, 200, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.62, w: 0.07, h: 0.34, rad: 0.035, dir: 0, st: [0, 150, 210, 255, 0.9, 1, 70, 150, 235, 0.9], lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.62, w: 0.07, h: 0.34, rad: 0.035, dir: 0, st: [0, 200, 205, 215, 0.9, 1, 170, 176, 190, 0.9], lit: 2))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.8, w: 0.07, h: 0.03, rad: 0, dir: 2, st: [0, 157, 162, 174, 1, 1, 124, 129, 142, 1]))
+        case "switch2":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.84, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.66, h: 0.66, rad: 0.12, dir: 3, st: [0, 255, 255, 255, 1, 1, 217, 221, 229, 1], stroke: 0.7))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.5, h: 0.5, rad: 0.08, dir: 3, st: [0, 243, 245, 249, 1, 1, 221, 225, 233, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.5, h: 0.012, rad: 0.006, dir: 1, st: [0, 0, 0, 0, 0.12, 1, 0, 0, 0, 0.12]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.07, h: 0.07, rad: 0, dir: 2, st: [0, 180, 160, 255, 1, 1, 120, 90, 230, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.05, h: 0.05, rad: 0, dir: 2, st: [0, 196, 200, 210, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "ir":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.84, w: 0.8, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.64, w: 0.74, h: 0.34, rad: 0.17, dir: 1, st: [0, 174, 179, 190, 1, 0.28, 230, 233, 239, 1, 0.55, 255, 255, 255, 1, 0.82, 230, 233, 239, 1, 1, 174, 179, 190, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.47, w: 0.76, h: 0.3, rad: 0.15, dir: 1, st: [0, 18, 19, 23, 1, 0.28, 43, 45, 52, 1, 0.55, 69, 72, 81, 1, 0.82, 43, 45, 52, 1, 1, 18, 19, 23, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.595, w: 0.72, h: 0.022, rad: 0.011, dir: 0, st: [0, 0, 0, 0, 0.4, 1, 0, 0, 0, 0.05]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.385, w: 0.62, h: 0.23, rad: 0, dir: 2, st: [0, 106, 109, 118, 1, 0.55, 60, 62, 70, 1, 1, 32, 33, 38, 1], stroke: 0.18))
+            a.append(VP(k: 1, cx: 0.38, cy: 0.32, w: 0.22, h: 0.06, rad: 0, dir: 0, st: [0, 255, 255, 255, 0.22, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 0, cx: 0.3, cy: 0.715, w: 0.1, h: 0.042, rad: 0.021, dir: 0, st: [0, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.46, cy: 0.715, w: 0.028, h: 0.028, rad: 0, dir: 2, st: [0, 200, 185, 255, 1, 1, 130, 100, 235, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.46, cy: 0.715, w: 0.026, h: 0.026, rad: 0, dir: 2, st: [0, 143, 148, 161, 1, 1, 74, 77, 86, 1], lit: 2))
+        case "midi":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.78, w: 0.567, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.53, w: 0.54, h: 0.46, rad: 0.06, dir: 1, st: [0, 42, 42, 48, 1, 0.28, 74, 74, 84, 1, 0.55, 108, 108, 120, 1, 0.82, 74, 74, 84, 1, 1, 42, 42, 48, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.73, w: 0.5292, h: 0.07, rad: 0.03, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0.3]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.3, w: 0.54, h: 0.1404, rad: 0, dir: 2, st: [0, 90, 90, 100, 1, 1, 52, 52, 60, 1], stroke: 0.25))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.3, w: 0.378, h: 0.0972, rad: 0, dir: 0, st: [0, 0, 0, 0, 0, 1, 0, 0, 0, 0]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.3, w: 0.3996, h: 0.1026, rad: 0, dir: 0, st: [0, 150, 110, 255, 0, 1, 150, 110, 255, 0], lit: 1, ring: [150, 110, 255]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.3, w: 0.3996, h: 0.1026, rad: 0, dir: 0, st: [0, 110, 110, 118, 0, 1, 110, 110, 118, 0], lit: 2, ring: [105, 105, 112]))
+        case "socket":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.6, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.58, h: 0.62, rad: 0.12, dir: 3, st: [0, 255, 255, 255, 1, 1, 212, 216, 225, 1], stroke: 0.7))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.46, h: 0.5, rad: 0.09, dir: 3, st: [0, 241, 243, 248, 1, 1, 221, 225, 233, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.3, h: 0.3, rad: 0, dir: 2, st: [0, 217, 220, 227, 1, 1, 185, 189, 200, 1]))
+            a.append(VP(k: 1, cx: 0.42, cy: 0.5, w: 0.055, h: 0.055, rad: 0, dir: 2, st: [0, 58, 61, 70, 1, 1, 21, 22, 26, 1]))
+            a.append(VP(k: 1, cx: 0.58, cy: 0.5, w: 0.055, h: 0.055, rad: 0, dir: 2, st: [0, 58, 61, 70, 1, 1, 21, 22, 26, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.7, w: 0.1, h: 0.025, rad: 0.012, dir: 0, st: [0, 195, 199, 209, 1, 1, 165, 170, 182, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.28, w: 0.05, h: 0.05, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.5, 150, 255, 200, 1, 1, 90, 153, 120, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.28, w: 0.045, h: 0.045, rad: 0, dir: 2, st: [0, 213, 216, 223, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "ceiling":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.8, w: 0.7, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.2, w: 0.8, h: 0.3, rad: 0, dir: 2, st: [0, 246, 247, 250, 1, 1, 201, 205, 214, 1], stroke: 0.5))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.28, w: 0.7, h: 0.16, rad: 0, dir: 0, st: [0, 255, 236, 180, 0, 1, 255, 236, 180, 0]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.34, w: 0.78, h: 0.2, rad: 0.1, dir: 0, st: [0, 255, 255, 255, 1, 1, 211, 215, 224, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.58, w: 0.74, h: 0.26, rad: 0, dir: 2, st: [0, 255, 236, 170, 0.85, 0.6, 255, 214, 120, 0.35, 1, 255, 214, 120, 0], blur: 0.03, lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.46, w: 0.6, h: 0.12, rad: 0, dir: 0, st: [0, 255, 250, 225, 1, 1, 255, 220, 140, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.46, w: 0.6, h: 0.12, rad: 0, dir: 0, st: [0, 236, 238, 243, 1, 1, 201, 205, 214, 1], lit: 2))
+        case "floorlamp":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.92, w: 0.5, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.91, w: 0.4, h: 0.06, rad: 0, dir: 2, st: [0, 91, 95, 106, 1, 1, 45, 48, 54, 1], stroke: 0.2))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.6, w: 0.04, h: 0.62, rad: 0.02, dir: 1, st: [0, 125, 130, 142, 1, 0.28, 201, 204, 212, 1, 0.55, 236, 238, 242, 1, 0.82, 201, 204, 212, 1, 1, 125, 130, 142, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.38, w: 0.62, h: 0.52, rad: 0, dir: 2, st: [0, 255, 220, 140, 0.5, 1, 255, 220, 140, 0], blur: 0.04, lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.22, w: 0.46, h: 0.3, rad: 0.07, dir: 1, st: [0, 217, 211, 198, 1, 0.35, 255, 250, 240, 1, 0.7, 255, 250, 240, 1, 1, 217, 211, 198, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.36, w: 0.46, h: 0.07, rad: 0, dir: 0, st: [0, 255, 236, 180, 1, 1, 255, 200, 110, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.36, w: 0.46, h: 0.07, rad: 0, dir: 0, st: [0, 213, 216, 223, 1, 1, 180, 185, 196, 1], lit: 2))
+        case "fan":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.9, w: 0.5, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.86, w: 0.14, h: 0.07, rad: 0.03, dir: 0, st: [0, 143, 148, 161, 1, 1, 91, 95, 107, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.74, w: 0.05, h: 0.22, rad: 0.02, dir: 1, st: [0, 125, 130, 142, 1, 0.28, 201, 204, 212, 1, 0.55, 236, 238, 242, 1, 0.82, 201, 204, 212, 1, 1, 125, 130, 142, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.42, w: 0.74, h: 0.74, rad: 0, dir: 2, st: [0, 243, 245, 249, 1, 1, 195, 199, 209, 1], stroke: 0.5))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.42, w: 0.66, h: 0.66, rad: 0, dir: 2, st: [0, 233, 236, 242, 1, 1, 185, 189, 200, 1]))
+            a.append(VP(k: 1, cx: 0.6299, cy: 0.375, w: 0.3, h: 0.15, rad: 0, dir: 0, st: [0, 255, 255, 255, 1, 1, 195, 199, 209, 1], stroke: 0.5, rot: -30))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.6, w: 0.3, h: 0.15, rad: 0, dir: 0, st: [0, 255, 255, 255, 1, 1, 195, 199, 209, 1], stroke: 0.5, rot: 90))
+            a.append(VP(k: 1, cx: 0.3701, cy: 0.375, w: 0.3, h: 0.15, rad: 0, dir: 0, st: [0, 255, 255, 255, 1, 1, 195, 199, 209, 1], stroke: 0.5, rot: 210))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.42, w: 0.12, h: 0.12, rad: 0, dir: 2, st: [0, 143, 148, 161, 1, 1, 91, 95, 107, 1], stroke: 0.4))
+        case "heater":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.86, w: 0.8, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.2, cy: 0.46, w: 0.085, h: 0.58, rad: 0.04, dir: 1, st: [0, 185, 189, 200, 1, 0.28, 255, 255, 255, 1, 0.55, 255, 255, 255, 1, 0.82, 255, 255, 255, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.32, cy: 0.46, w: 0.085, h: 0.58, rad: 0.04, dir: 1, st: [0, 185, 189, 200, 1, 0.28, 255, 255, 255, 1, 0.55, 255, 255, 255, 1, 0.82, 255, 255, 255, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.44, cy: 0.46, w: 0.085, h: 0.58, rad: 0.04, dir: 1, st: [0, 185, 189, 200, 1, 0.28, 255, 255, 255, 1, 0.55, 255, 255, 255, 1, 0.82, 255, 255, 255, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.56, cy: 0.46, w: 0.085, h: 0.58, rad: 0.04, dir: 1, st: [0, 185, 189, 200, 1, 0.28, 255, 255, 255, 1, 0.55, 255, 255, 255, 1, 0.82, 255, 255, 255, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.68, cy: 0.46, w: 0.085, h: 0.58, rad: 0.04, dir: 1, st: [0, 185, 189, 200, 1, 0.28, 255, 255, 255, 1, 0.55, 255, 255, 255, 1, 0.82, 255, 255, 255, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.8, cy: 0.46, w: 0.085, h: 0.58, rad: 0.04, dir: 1, st: [0, 185, 189, 200, 1, 0.28, 255, 255, 255, 1, 0.55, 255, 255, 255, 1, 0.82, 255, 255, 255, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.18, w: 0.78, h: 0.07, rad: 0.03, dir: 0, st: [0, 201, 205, 214, 1, 1, 157, 162, 174, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.76, w: 0.78, h: 0.06, rad: 0.03, dir: 0, st: [0, 157, 162, 174, 1, 1, 124, 129, 142, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.7, h: 0.4, rad: 0, dir: 2, st: [0, 255, 150, 80, 0.4, 1, 255, 150, 80, 0], blur: 0.04, lit: 1))
+            a.append(VP(k: 1, cx: 0.84, cy: 0.22, w: 0.045, h: 0.045, rad: 0, dir: 2, st: [0, 255, 200, 150, 1, 1, 255, 110, 50, 1], lit: 1))
+        case "coffee":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.66, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.58, h: 0.72, rad: 0.08, dir: 1, st: [0, 21, 22, 26, 1, 0.28, 46, 48, 56, 1, 0.55, 71, 74, 84, 1, 0.82, 46, 48, 56, 1, 1, 21, 22, 26, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.2, w: 0.58, h: 0.12, rad: 0.05, dir: 0, st: [0, 58, 61, 70, 1, 1, 28, 29, 34, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.34, w: 0.46, h: 0.1, rad: 0.03, dir: 0, st: [0, 157, 162, 174, 1, 1, 91, 95, 107, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.62, w: 0.3, h: 0.22, rad: 0.03, dir: 0, st: [0, 233, 236, 242, 1, 1, 185, 189, 200, 1], stroke: 0.4))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.66, w: 0.15, h: 0.12, rad: 0.03, dir: 0, st: [0, 255, 255, 255, 1, 1, 217, 220, 227, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.82, w: 0.58, h: 0.05, rad: 0.02, dir: 0, st: [0, 58, 61, 70, 1, 1, 21, 22, 26, 1]))
+            a.append(VP(k: 0, cx: 0.4, cy: 0.42, w: 0.12, h: 0.4, rad: 0.04, dir: 0, st: [0, 255, 255, 255, 0.2, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 1, cx: 0.7, cy: 0.2, w: 0.044, h: 0.044, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.5, 255, 190, 110, 1, 1, 153, 114, 66, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.7, cy: 0.2, w: 0.0396, h: 0.0396, rad: 0, dir: 2, st: [0, 213, 216, 223, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "multicooker":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.86, w: 0.74, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.58, w: 0.66, h: 0.54, rad: 0.16, dir: 1, st: [0, 185, 189, 200, 1, 0.28, 243, 245, 249, 1, 0.55, 255, 255, 255, 1, 0.82, 243, 245, 249, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.34, w: 0.6, h: 0.2, rad: 0.1, dir: 1, st: [0, 46, 48, 56, 1, 0.28, 74, 77, 86, 1, 0.55, 110, 114, 126, 1, 0.82, 74, 77, 86, 1, 1, 46, 48, 56, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.24, w: 0.1, h: 0.05, rad: 0.02, dir: 0, st: [0, 143, 148, 161, 1, 1, 91, 95, 107, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.66, w: 0.3, h: 0.12, rad: 0.03, dir: 0, st: [0, 58, 61, 70, 1, 1, 21, 22, 26, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.66, w: 0.2, h: 0.04, rad: 0.02, dir: 1, st: [0, 150, 255, 200, 0, 0.5, 150, 255, 200, 1, 1, 150, 255, 200, 0], lit: 1))
+        case "oven":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.8, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.8, h: 0.76, rad: 0.07, dir: 0, st: [0, 227, 230, 236, 1, 1, 180, 185, 196, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.22, w: 0.72, h: 0.1, rad: 0.03, dir: 0, st: [0, 46, 48, 56, 1, 1, 21, 22, 26, 1]))
+            a.append(VP(k: 1, cx: 0.2, cy: 0.22, w: 0.07, h: 0.07, rad: 0, dir: 2, st: [0, 157, 162, 174, 1, 1, 91, 95, 107, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.4, cy: 0.22, w: 0.07, h: 0.07, rad: 0, dir: 2, st: [0, 157, 162, 174, 1, 1, 91, 95, 107, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.6, cy: 0.22, w: 0.07, h: 0.07, rad: 0, dir: 2, st: [0, 157, 162, 174, 1, 1, 91, 95, 107, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.8, cy: 0.22, w: 0.07, h: 0.07, rad: 0, dir: 2, st: [0, 157, 162, 174, 1, 1, 91, 95, 107, 1], stroke: 0.4))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.6, w: 0.62, h: 0.38, rad: 0.04, dir: 0, st: [0, 58, 61, 70, 1, 1, 15, 16, 19, 1], stroke: 0.3))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.6, w: 0.44, h: 0.22, rad: 0.03, dir: 0, st: [0, 255, 170, 80, 0.55, 1, 255, 110, 40, 0.55], blur: 0.02, lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.45, w: 0.56, h: 0.025, rad: 0.012, dir: 0, st: [0, 201, 205, 214, 1, 1, 143, 148, 161, 1]))
+        case "fridge":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.92, w: 0.6, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.48, h: 0.86, rad: 0.06, dir: 1, st: [0, 185, 189, 200, 1, 0.28, 245, 246, 249, 1, 0.55, 255, 255, 255, 1, 0.82, 245, 246, 249, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.34, w: 0.46, h: 0.012, rad: 0.006, dir: 1, st: [0, 0, 0, 0, 0.25, 1, 0, 0, 0, 0.25]))
+            a.append(VP(k: 0, cx: 0.62, cy: 0.24, w: 0.025, h: 0.12, rad: 0.012, dir: 0, st: [0, 157, 162, 174, 1, 1, 110, 114, 126, 1]))
+            a.append(VP(k: 0, cx: 0.62, cy: 0.52, w: 0.025, h: 0.2, rad: 0.012, dir: 0, st: [0, 157, 162, 174, 1, 1, 110, 114, 126, 1]))
+            a.append(VP(k: 0, cx: 0.38, cy: 0.4, w: 0.08, h: 0.62, rad: 0.03, dir: 0, st: [0, 255, 255, 255, 0.3, 1, 255, 255, 255, 0]))
+        case "tvbox":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.66, w: 0.6, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.66, h: 0.2, rad: 0.07, dir: 0, st: [0, 58, 61, 70, 1, 1, 21, 22, 26, 1], stroke: 0.3))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.45, w: 0.62, h: 0.06, rad: 0.03, dir: 0, st: [0, 255, 255, 255, 0.22, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 1, cx: 0.7, cy: 0.52, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 180, 160, 255, 1, 1, 120, 90, 230, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.7, cy: 0.52, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 110, 114, 126, 1, 1, 58, 61, 70, 1], lit: 2))
+        case "soundbar":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.68, w: 0.9, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.92, h: 0.2, rad: 0.1, dir: 1, st: [0, 21, 22, 26, 1, 0.28, 44, 46, 54, 1, 0.55, 64, 67, 77, 1, 0.82, 44, 46, 54, 1, 1, 21, 22, 26, 1], stroke: 0.3))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.49, w: 0.8, h: 0.1, rad: 0.05, dir: 0, st: [0, 12, 13, 16, 1, 1, 36, 38, 44, 1]))
+            a.append(VP(k: 1, cx: 0.14, cy: 0.49, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 85, 88, 95, 1, 1, 36, 38, 44, 1]))
+            a.append(VP(k: 1, cx: 0.23, cy: 0.49, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 85, 88, 95, 1, 1, 36, 38, 44, 1]))
+            a.append(VP(k: 1, cx: 0.32, cy: 0.49, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 85, 88, 95, 1, 1, 36, 38, 44, 1]))
+            a.append(VP(k: 1, cx: 0.41, cy: 0.49, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 85, 88, 95, 1, 1, 36, 38, 44, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.49, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 85, 88, 95, 1, 1, 36, 38, 44, 1]))
+            a.append(VP(k: 1, cx: 0.59, cy: 0.49, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 85, 88, 95, 1, 1, 36, 38, 44, 1]))
+            a.append(VP(k: 1, cx: 0.68, cy: 0.49, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 85, 88, 95, 1, 1, 36, 38, 44, 1]))
+            a.append(VP(k: 1, cx: 0.77, cy: 0.49, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 85, 88, 95, 1, 1, 36, 38, 44, 1]))
+            a.append(VP(k: 1, cx: 0.86, cy: 0.49, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 85, 88, 95, 1, 1, 36, 38, 44, 1]))
+            a.append(VP(k: 1, cx: 0.88, cy: 0.5, w: 0.032, h: 0.032, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.5, 150, 110, 255, 1, 1, 90, 66, 153, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.88, cy: 0.5, w: 0.0288, h: 0.0288, rad: 0, dir: 2, st: [0, 213, 216, 223, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "projector":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.74, w: 0.7, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.52, w: 0.8, h: 0.36, rad: 0.12, dir: 0, st: [0, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.36, cy: 0.52, w: 0.24, h: 0.24, rad: 0, dir: 2, st: [0, 74, 77, 86, 1, 1, 13, 14, 17, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.36, cy: 0.52, w: 0.12, h: 0.12, rad: 0, dir: 2, st: [0, 150, 170, 255, 0.9, 1, 60, 70, 180, 0.9]))
+            a.append(VP(k: 0, cx: 0.72, cy: 0.46, w: 0.2, h: 0.025, rad: 0.012, dir: 0, st: [0, 174, 179, 191, 1, 1, 217, 220, 227, 1]))
+            a.append(VP(k: 0, cx: 0.72, cy: 0.52, w: 0.2, h: 0.025, rad: 0.012, dir: 0, st: [0, 174, 179, 191, 1, 1, 217, 220, 227, 1]))
+        case "curtain":
+            a.append(VP(k: 0, cx: 0.5, cy: 0.14, w: 0.9, h: 0.045, rad: 0.02, dir: 0, st: [0, 157, 162, 174, 1, 1, 110, 114, 126, 1]))
+            a.append(VP(k: 0, cx: 0.27, cy: 0.52, w: 0.4, h: 0.7, rad: 0.03, dir: 1, st: [0, 201, 206, 217, 1, 0.2, 241, 243, 248, 1, 0.35, 201, 206, 217, 1, 0.55, 241, 243, 248, 1, 0.75, 201, 206, 217, 1, 1, 228, 231, 238, 1], stroke: 0.4))
+            a.append(VP(k: 0, cx: 0.73, cy: 0.52, w: 0.4, h: 0.7, rad: 0.03, dir: 1, st: [0, 228, 231, 238, 1, 0.25, 201, 206, 217, 1, 0.45, 241, 243, 248, 1, 0.65, 201, 206, 217, 1, 0.8, 241, 243, 248, 1, 1, 201, 206, 217, 1], stroke: 0.4))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.52, w: 0.1, h: 0.66, rad: 0.02, dir: 0, st: [0, 150, 200, 255, 0.25, 1, 150, 200, 255, 0.05], lit: 1))
+        case "valve":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.84, w: 0.7, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.62, w: 0.86, h: 0.2, rad: 0.05, dir: 0, st: [0, 201, 206, 217, 1, 0.5, 143, 148, 161, 1, 1, 91, 95, 107, 1]))
+            a.append(VP(k: 0, cx: 0.18, cy: 0.62, w: 0.1, h: 0.3, rad: 0.03, dir: 0, st: [0, 180, 185, 196, 1, 1, 110, 114, 126, 1]))
+            a.append(VP(k: 0, cx: 0.82, cy: 0.62, w: 0.1, h: 0.3, rad: 0.03, dir: 0, st: [0, 180, 185, 196, 1, 1, 110, 114, 126, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.42, w: 0.2, h: 0.22, rad: 0.05, dir: 1, st: [0, 124, 129, 142, 1, 0.28, 208, 211, 219, 1, 0.55, 240, 241, 245, 1, 0.82, 208, 211, 219, 1, 1, 124, 129, 142, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.28, w: 0.07, h: 0.14, rad: 0.02, dir: 1, st: [0, 143, 148, 161, 1, 0.28, 201, 204, 212, 1, 0.55, 233, 235, 240, 1, 0.82, 201, 204, 212, 1, 1, 143, 148, 161, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.2, w: 0.46, h: 0.07, rad: 0.035, dir: 0, st: [0, 255, 110, 110, 1, 1, 200, 50, 60, 1], lit: 2))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.2, w: 0.46, h: 0.07, rad: 0.035, dir: 0, st: [0, 110, 200, 255, 1, 1, 40, 130, 220, 1], lit: 1))
+        case "gate":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.86, w: 0.9, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.88, h: 0.7, rad: 0.04, dir: 0, st: [0, 255, 255, 255, 1, 1, 223, 226, 234, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.24, w: 0.8, h: 0.012, rad: 0.006, dir: 1, st: [0, 0, 0, 0, 0.22, 1, 0, 0, 0, 0.22]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.38, w: 0.8, h: 0.012, rad: 0.006, dir: 1, st: [0, 0, 0, 0, 0.22, 1, 0, 0, 0, 0.22]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.52, w: 0.8, h: 0.012, rad: 0.006, dir: 1, st: [0, 0, 0, 0, 0.22, 1, 0, 0, 0, 0.22]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.66, w: 0.8, h: 0.012, rad: 0.006, dir: 1, st: [0, 0, 0, 0, 0.22, 1, 0, 0, 0, 0.22]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.8, h: 0.1, rad: 0.02, dir: 0, st: [0, 255, 255, 255, 0, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.12, h: 0.025, rad: 0.012, dir: 0, st: [0, 143, 148, 161, 1, 1, 91, 95, 107, 1]))
+        case "lock":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.86, w: 0.56, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.34, h: 0.34, rad: 0.17, dir: 0, st: [0, 180, 185, 196, 1, 1, 110, 114, 126, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.34, w: 0.2, h: 0.3, rad: 0.1, dir: 0, st: [0, 235, 236, 240, 1, 1, 235, 236, 240, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.6, w: 0.56, h: 0.44, rad: 0.08, dir: 0, st: [0, 74, 77, 86, 1, 1, 28, 29, 34, 1], stroke: 0.3))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.52, w: 0.5, h: 0.06, rad: 0.03, dir: 0, st: [0, 255, 255, 255, 0.2, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.58, w: 0.1, h: 0.1, rad: 0, dir: 2, st: [0, 227, 230, 236, 1, 1, 157, 162, 174, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.66, w: 0.04, h: 0.1, rad: 0.02, dir: 0, st: [0, 227, 230, 236, 1, 1, 157, 162, 174, 1]))
+        case "washer":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.9, w: 0.74, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.72, h: 0.82, rad: 0.07, dir: 1, st: [0, 185, 189, 200, 1, 0.28, 245, 246, 249, 1, 0.55, 255, 255, 255, 1, 0.82, 245, 246, 249, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.2, w: 0.66, h: 0.1, rad: 0.03, dir: 0, st: [0, 223, 226, 234, 1, 1, 180, 185, 196, 1]))
+            a.append(VP(k: 1, cx: 0.3, cy: 0.2, w: 0.06, h: 0.06, rad: 0, dir: 2, st: [0, 143, 148, 161, 1, 1, 91, 95, 107, 1]))
+            a.append(VP(k: 1, cx: 0.46, cy: 0.2, w: 0.06, h: 0.06, rad: 0, dir: 2, st: [0, 143, 148, 161, 1, 1, 91, 95, 107, 1]))
+            a.append(VP(k: 0, cx: 0.7, cy: 0.2, w: 0.12, h: 0.04, rad: 0.02, dir: 0, st: [0, 21, 22, 26, 1, 1, 58, 61, 70, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.58, w: 0.46, h: 0.46, rad: 0, dir: 2, st: [0, 143, 148, 161, 1, 1, 228, 230, 236, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.58, w: 0.36, h: 0.36, rad: 0, dir: 2, st: [0, 29, 58, 92, 1, 1, 11, 22, 36, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.64, w: 0.3, h: 0.18, rad: 0, dir: 0, st: [0, 110, 190, 255, 0.55, 1, 60, 140, 230, 0.55], lit: 1))
+            a.append(VP(k: 1, cx: 0.42, cy: 0.5, w: 0.1, h: 0.07, rad: 0, dir: 0, st: [0, 255, 255, 255, 0.45, 1, 255, 255, 255, 0]))
+        case "dishwasher":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.9, w: 0.74, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.72, h: 0.82, rad: 0.07, dir: 0, st: [0, 227, 230, 236, 1, 1, 180, 185, 196, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.18, w: 0.66, h: 0.1, rad: 0.03, dir: 0, st: [0, 46, 48, 56, 1, 1, 21, 22, 26, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.48, w: 0.62, h: 0.04, rad: 0.02, dir: 0, st: [0, 157, 162, 174, 1, 1, 110, 114, 126, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.62, w: 0.6, h: 0.3, rad: 0.03, dir: 0, st: [0, 255, 255, 255, 0.18, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 1, cx: 0.7, cy: 0.18, w: 0.04, h: 0.04, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.5, 110, 200, 255, 1, 1, 66, 120, 153, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.7, cy: 0.18, w: 0.036, h: 0.036, rad: 0, dir: 2, st: [0, 213, 216, 223, 1, 1, 157, 162, 174, 1], lit: 2))
+            a.append(VP(k: 1, cx: 0.3, cy: 0.18, w: 0.025, h: 0.025, rad: 0, dir: 2, st: [0, 143, 148, 161, 1, 1, 91, 95, 107, 1]))
+            a.append(VP(k: 1, cx: 0.36, cy: 0.18, w: 0.025, h: 0.025, rad: 0, dir: 2, st: [0, 143, 148, 161, 1, 1, 91, 95, 107, 1]))
+            a.append(VP(k: 1, cx: 0.42, cy: 0.18, w: 0.025, h: 0.025, rad: 0, dir: 2, st: [0, 143, 148, 161, 1, 1, 91, 95, 107, 1]))
+        case "iron":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.8, w: 0.8, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.7, w: 0.82, h: 0.09, rad: 0.04, dir: 0, st: [0, 233, 236, 242, 1, 1, 143, 148, 161, 1]))
+            a.append(VP(k: 0, cx: 0.48, cy: 0.57, w: 0.7, h: 0.24, rad: 0.12, dir: 0, st: [0, 255, 255, 255, 1, 1, 195, 199, 209, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.36, cy: 0.5, w: 0.06, h: 0.05, rad: 0.025, dir: 0, st: [0, 255, 255, 255, 0.7, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 0, cx: 0.4, cy: 0.3, w: 0.04, h: 0.12, rad: 0.02, dir: 0, st: [0, 58, 61, 70, 1, 1, 21, 22, 26, 1]))
+            a.append(VP(k: 0, cx: 0.64, cy: 0.34, w: 0.04, h: 0.18, rad: 0.02, dir: 0, st: [0, 58, 61, 70, 1, 1, 21, 22, 26, 1]))
+            a.append(VP(k: 0, cx: 0.52, cy: 0.25, w: 0.3, h: 0.06, rad: 0.03, dir: 0, st: [0, 74, 77, 86, 1, 1, 21, 22, 26, 1]))
+            a.append(VP(k: 1, cx: 0.28, cy: 0.58, w: 0.05, h: 0.05, rad: 0, dir: 2, st: [0, 255, 190, 110, 1, 1, 230, 100, 40, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.28, cy: 0.58, w: 0.05, h: 0.05, rad: 0, dir: 2, st: [0, 157, 162, 174, 1, 1, 110, 114, 126, 1], lit: 2))
+        case "s_motion":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.82, w: 0.5, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.54, h: 0.54, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.44, h: 0.44, rad: 0, dir: 3, st: [0, 244, 246, 250, 1, 1, 217, 220, 227, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.46, w: 0.24, h: 0.24, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.6, 223, 226, 234, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 1, cx: 0.45, cy: 0.4, w: 0.08, h: 0.06, rad: 0, dir: 0, st: [0, 255, 255, 255, 0.8, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.7, w: 0.044, h: 0.044, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.5, 255, 120, 120, 1, 1, 153, 72, 72, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.7, w: 0.0396, h: 0.0396, rad: 0, dir: 2, st: [0, 213, 216, 223, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "s_door":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.74, w: 0.8, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.3, cy: 0.5, w: 0.34, h: 0.18, rad: 0.04, dir: 0, st: [0, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.6))
+            a.append(VP(k: 0, cx: 0.74, cy: 0.5, w: 0.2, h: 0.18, rad: 0.04, dir: 0, st: [0, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.18, cy: 0.5, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 150, 255, 200, 1, 1, 40, 190, 130, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.18, cy: 0.5, w: 0.03, h: 0.03, rad: 0, dir: 2, st: [0, 180, 185, 196, 1, 1, 143, 148, 161, 1], lit: 2))
+        case "s_button":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.8, w: 0.5, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.52, w: 0.56, h: 0.56, rad: 0, dir: 2, st: [0, 244, 246, 250, 1, 1, 185, 189, 200, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.42, h: 0.42, rad: 0, dir: 3, st: [0, 255, 255, 255, 1, 1, 208, 212, 222, 1], stroke: 0.5))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.1, h: 0.1, rad: 0, dir: 2, st: [0, 180, 160, 255, 1, 1, 120, 90, 230, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.08, h: 0.08, rad: 0, dir: 2, st: [0, 195, 199, 209, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "s_smoke":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.78, w: 0.6, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.64, h: 0.64, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 1, 195, 199, 209, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.46, h: 0.46, rad: 0, dir: 3, st: [0, 236, 238, 243, 1, 1, 207, 211, 220, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.62, cy: 0.5, w: 0.045, h: 0.045, rad: 0, dir: 2, st: [0, 91, 95, 107, 1, 1, 46, 48, 56, 1]))
+            a.append(VP(k: 1, cx: 0.56, cy: 0.6039, w: 0.045, h: 0.045, rad: 0, dir: 2, st: [0, 91, 95, 107, 1, 1, 46, 48, 56, 1]))
+            a.append(VP(k: 1, cx: 0.44, cy: 0.6039, w: 0.045, h: 0.045, rad: 0, dir: 2, st: [0, 91, 95, 107, 1, 1, 46, 48, 56, 1]))
+            a.append(VP(k: 1, cx: 0.38, cy: 0.5, w: 0.045, h: 0.045, rad: 0, dir: 2, st: [0, 91, 95, 107, 1, 1, 46, 48, 56, 1]))
+            a.append(VP(k: 1, cx: 0.44, cy: 0.3961, w: 0.045, h: 0.045, rad: 0, dir: 2, st: [0, 91, 95, 107, 1, 1, 46, 48, 56, 1]))
+            a.append(VP(k: 1, cx: 0.56, cy: 0.3961, w: 0.045, h: 0.045, rad: 0, dir: 2, st: [0, 91, 95, 107, 1, 1, 46, 48, 56, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.06, h: 0.06, rad: 0, dir: 2, st: [0, 91, 95, 107, 1, 1, 46, 48, 56, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.24, w: 0.04, h: 0.04, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.5, 255, 100, 100, 1, 1, 153, 60, 60, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.24, w: 0.036, h: 0.036, rad: 0, dir: 2, st: [0, 213, 216, 223, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "s_gas":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.78, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.62, h: 0.5, rad: 0.12, dir: 0, st: [0, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.6))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.42, w: 0.4, h: 0.025, rad: 0.012, dir: 0, st: [0, 143, 148, 161, 1, 1, 195, 199, 209, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.48, w: 0.4, h: 0.025, rad: 0.012, dir: 0, st: [0, 143, 148, 161, 1, 1, 195, 199, 209, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.54, w: 0.4, h: 0.025, rad: 0.012, dir: 0, st: [0, 143, 148, 161, 1, 1, 195, 199, 209, 1]))
+            a.append(VP(k: 1, cx: 0.74, cy: 0.64, w: 0.04, h: 0.04, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.5, 255, 190, 90, 1, 1, 153, 114, 54, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.74, cy: 0.64, w: 0.036, h: 0.036, rad: 0, dir: 2, st: [0, 213, 216, 223, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "s_vib":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.78, w: 0.5, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.5, h: 0.5, rad: 0.12, dir: 3, st: [0, 255, 255, 255, 1, 1, 195, 199, 209, 1], stroke: 0.6))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.36, h: 0.022, rad: 0.011, dir: 1, st: [0, 120, 90, 230, 0, 0.5, 120, 90, 230, 1, 1, 120, 90, 230, 0], lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.36, h: 0.022, rad: 0.011, dir: 1, st: [0, 157, 162, 174, 0, 0.5, 157, 162, 174, 1, 1, 157, 162, 174, 0], lit: 2))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.42, w: 0.24, h: 0.02, rad: 0.01, dir: 1, st: [0, 157, 162, 174, 0, 0.5, 157, 162, 174, 1, 1, 157, 162, 174, 0]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.58, w: 0.24, h: 0.02, rad: 0.01, dir: 1, st: [0, 157, 162, 174, 0, 0.5, 157, 162, 174, 1, 1, 157, 162, 174, 0]))
+        case "s_light":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.78, w: 0.52, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.58, h: 0.58, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.3, h: 0.3, rad: 0, dir: 2, st: [0, 255, 240, 180, 1, 1, 255, 190, 70, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.3, h: 0.3, rad: 0, dir: 2, st: [0, 228, 231, 238, 1, 1, 180, 185, 196, 1], lit: 2))
+        case "s_leak":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.8, w: 0.7, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.52, w: 0.6, h: 0.6, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 1, 195, 199, 209, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.36, h: 0.36, rad: 0, dir: 3, st: [0, 236, 238, 243, 1, 1, 207, 211, 220, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.52, w: 0.14, h: 0.2, rad: 0, dir: 0, st: [0, 150, 210, 255, 1, 1, 40, 130, 230, 1]))
+            a.append(VP(k: 0, cx: 0.36, cy: 0.86, w: 0.025, h: 0.12, rad: 0.012, dir: 0, st: [0, 180, 185, 196, 1, 1, 110, 114, 126, 1]))
+            a.append(VP(k: 0, cx: 0.64, cy: 0.86, w: 0.025, h: 0.12, rad: 0.012, dir: 0, st: [0, 180, 185, 196, 1, 1, 110, 114, 126, 1]))
+        case "s_climate":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.82, w: 0.58, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.54, h: 0.54, rad: 0.12, dir: 3, st: [0, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.6))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.46, w: 0.38, h: 0.26, rad: 0.05, dir: 0, st: [0, 46, 48, 56, 1, 1, 15, 16, 19, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.46, w: 0.28, h: 0.06, rad: 0.02, dir: 1, st: [0, 120, 240, 190, 0, 0.5, 120, 240, 190, 1, 1, 120, 240, 190, 0], lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.46, w: 0.28, h: 0.06, rad: 0.02, dir: 1, st: [0, 110, 114, 126, 0, 0.5, 110, 114, 126, 1, 1, 110, 114, 126, 0], lit: 2))
+        case "s_generic":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.82, w: 0.5, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.54, h: 0.54, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 1, 201, 205, 214, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.44, h: 0.44, rad: 0, dir: 3, st: [0, 244, 246, 250, 1, 1, 217, 220, 227, 1], stroke: 0.4))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.08, h: 0.08, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.5, 150, 110, 255, 1, 1, 90, 66, 153, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.5, w: 0.072, h: 0.072, rad: 0, dir: 2, st: [0, 213, 216, 223, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "camera":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.56, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.8, w: 0.24, h: 0.08, rad: 0.03, dir: 0, st: [0, 195, 199, 209, 1, 1, 143, 148, 161, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.68, w: 0.1, h: 0.12, rad: 0.02, dir: 1, st: [0, 143, 148, 161, 1, 0.28, 201, 204, 212, 1, 0.55, 233, 235, 240, 1, 0.82, 201, 204, 212, 1, 1, 143, 148, 161, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.4, w: 0.6, h: 0.6, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 1, 195, 199, 209, 1], stroke: 0.6))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.4, w: 0.46, h: 0.46, rad: 0, dir: 2, st: [0, 46, 48, 56, 1, 1, 10, 11, 14, 1], stroke: 0.3))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.4, w: 0.28, h: 0.28, rad: 0, dir: 2, st: [0, 58, 74, 138, 1, 0.6, 20, 26, 58, 1, 1, 5, 6, 12, 1]))
+            a.append(VP(k: 1, cx: 0.43, cy: 0.33, w: 0.08, h: 0.06, rad: 0, dir: 0, st: [0, 255, 255, 255, 0.7, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.66, w: 0.032, h: 0.032, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.5, 255, 90, 90, 1, 1, 153, 54, 54, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.66, w: 0.0288, h: 0.0288, rad: 0, dir: 2, st: [0, 213, 216, 223, 1, 1, 157, 162, 174, 1], lit: 2))
+        case "m_elec":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.58, h: 0.76, rad: 0.07, dir: 1, st: [0, 168, 173, 185, 1, 0.28, 233, 236, 242, 1, 0.55, 255, 255, 255, 1, 0.82, 233, 236, 242, 1, 1, 168, 173, 185, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.4, h: 0.18, rad: 0.04, dir: 0, st: [0, 32, 36, 44, 1, 1, 10, 12, 16, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.32, h: 0.07, rad: 0.02, dir: 1, st: [0, 255, 200, 70, 0, 0.5, 255, 200, 70, 1, 1, 255, 200, 70, 0], lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.32, h: 0.07, rad: 0.02, dir: 1, st: [0, 110, 114, 126, 0, 0.5, 110, 114, 126, 1, 1, 110, 114, 126, 0], lit: 2))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.62, w: 0.34, h: 0.2, rad: 0.04, dir: 0, st: [0, 201, 205, 214, 1, 1, 143, 148, 161, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.62, w: 0.22, h: 0.025, rad: 0.012, dir: 0, st: [0, 70, 74, 86, 1, 1, 40, 42, 50, 1]))
+        case "m_gas":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.58, h: 0.76, rad: 0.07, dir: 1, st: [0, 168, 173, 185, 1, 0.28, 233, 236, 242, 1, 0.55, 255, 255, 255, 1, 0.82, 233, 236, 242, 1, 1, 168, 173, 185, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.4, h: 0.18, rad: 0.04, dir: 0, st: [0, 32, 36, 44, 1, 1, 10, 12, 16, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.32, h: 0.07, rad: 0.02, dir: 1, st: [0, 255, 140, 70, 0, 0.5, 255, 140, 70, 1, 1, 255, 140, 70, 0], lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.32, h: 0.07, rad: 0.02, dir: 1, st: [0, 110, 114, 126, 0, 0.5, 110, 114, 126, 1, 1, 110, 114, 126, 0], lit: 2))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.62, w: 0.3, h: 0.3, rad: 0, dir: 2, st: [0, 217, 220, 227, 1, 1, 157, 162, 174, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.62, w: 0.04, h: 0.2, rad: 0.02, dir: 0, st: [0, 255, 140, 70, 1, 1, 220, 90, 40, 1]))
+        case "m_water":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.58, h: 0.76, rad: 0.07, dir: 1, st: [0, 168, 173, 185, 1, 0.28, 233, 236, 242, 1, 0.55, 255, 255, 255, 1, 0.82, 233, 236, 242, 1, 1, 168, 173, 185, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.4, h: 0.18, rad: 0.04, dir: 0, st: [0, 32, 36, 44, 1, 1, 10, 12, 16, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.32, h: 0.07, rad: 0.02, dir: 1, st: [0, 90, 170, 255, 0, 0.5, 90, 170, 255, 1, 1, 90, 170, 255, 0], lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.32, h: 0.07, rad: 0.02, dir: 1, st: [0, 110, 114, 126, 0, 0.5, 110, 114, 126, 1, 1, 110, 114, 126, 0], lit: 2))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.62, w: 0.3, h: 0.3, rad: 0, dir: 2, st: [0, 90, 127, 176, 1, 1, 43, 74, 120, 1], stroke: 0.5))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.62, w: 0.22, h: 0.22, rad: 0, dir: 2, st: [0, 243, 245, 249, 1, 1, 201, 205, 214, 1]))
+        case "m_heat":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.58, h: 0.76, rad: 0.07, dir: 1, st: [0, 168, 173, 185, 1, 0.28, 233, 236, 242, 1, 0.55, 255, 255, 255, 1, 0.82, 233, 236, 242, 1, 1, 168, 173, 185, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.4, h: 0.18, rad: 0.04, dir: 0, st: [0, 32, 36, 44, 1, 1, 10, 12, 16, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.32, h: 0.07, rad: 0.02, dir: 1, st: [0, 255, 120, 90, 0, 0.5, 255, 120, 90, 1, 1, 255, 120, 90, 0], lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.32, h: 0.07, rad: 0.02, dir: 1, st: [0, 110, 114, 126, 0, 0.5, 110, 114, 126, 1, 1, 110, 114, 126, 0], lit: 2))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.64, w: 0.34, h: 0.18, rad: 0.04, dir: 0, st: [0, 217, 220, 227, 1, 1, 157, 162, 174, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.64, w: 0.06, h: 0.06, rad: 0, dir: 2, st: [0, 255, 170, 150, 1, 1, 230, 80, 60, 1]))
+        case "m_generic":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.5, w: 0.58, h: 0.76, rad: 0.07, dir: 1, st: [0, 168, 173, 185, 1, 0.28, 233, 236, 242, 1, 0.55, 255, 255, 255, 1, 0.82, 233, 236, 242, 1, 1, 168, 173, 185, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.4, h: 0.18, rad: 0.04, dir: 0, st: [0, 32, 36, 44, 1, 1, 10, 12, 16, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.32, h: 0.07, rad: 0.02, dir: 1, st: [0, 150, 110, 255, 0, 0.5, 150, 110, 255, 1, 1, 150, 110, 255, 0], lit: 1))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.32, h: 0.07, rad: 0.02, dir: 1, st: [0, 110, 114, 126, 0, 0.5, 110, 114, 126, 1, 1, 110, 114, 126, 0], lit: 2))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.62, w: 0.34, h: 0.2, rad: 0.04, dir: 0, st: [0, 201, 205, 214, 1, 1, 143, 148, 161, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.62, w: 0.22, h: 0.025, rad: 0.012, dir: 0, st: [0, 70, 74, 86, 1, 1, 40, 42, 50, 1]))
+        case "pet_feeder":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.34, w: 0.38, h: 0.46, rad: 0.12, dir: 1, st: [0, 201, 206, 217, 1, 0.4, 243, 245, 249, 1, 1, 195, 199, 209, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.12, w: 0.3, h: 0.06, rad: 0.03, dir: 0, st: [0, 157, 162, 174, 1, 1, 110, 114, 126, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.64, w: 0.6, h: 0.18, rad: 0.07, dir: 0, st: [0, 243, 245, 249, 1, 1, 195, 199, 209, 1], stroke: 0.5))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.58, w: 0.5, h: 0.12, rad: 0, dir: 0, st: [0, 185, 189, 200, 1, 1, 228, 230, 236, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.585, w: 0.42, h: 0.07, rad: 0, dir: 0, st: [0, 205, 150, 100, 1, 1, 170, 110, 70, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.8, w: 0.5, h: 0.05, rad: 0.025, dir: 0, st: [0, 157, 162, 174, 1, 1, 110, 114, 126, 1]))
+        case "pet_fountain":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.88, w: 0.74, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.68, w: 0.74, h: 0.28, rad: 0.12, dir: 0, st: [0, 243, 245, 249, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.58, w: 0.64, h: 0.14, rad: 0, dir: 0, st: [0, 157, 162, 174, 1, 1, 217, 220, 227, 1]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.59, w: 0.56, h: 0.1, rad: 0, dir: 0, st: [0, 150, 210, 255, 1, 1, 90, 170, 245, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.59, w: 0.56, h: 0.1, rad: 0, dir: 0, st: [0, 190, 200, 215, 1, 1, 160, 170, 188, 1], lit: 2))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.38, w: 0.16, h: 0.4, rad: 0.08, dir: 1, st: [0, 185, 189, 200, 1, 0.28, 243, 245, 249, 1, 0.55, 255, 255, 255, 1, 0.82, 243, 245, 249, 1, 1, 185, 189, 200, 1], stroke: 0.5))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.22, w: 0.3, h: 0.07, rad: 0.035, dir: 0, st: [0, 255, 255, 255, 1, 1, 195, 199, 209, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.4, w: 0.04, h: 0.2, rad: 0.02, dir: 0, st: [0, 150, 210, 255, 0.7, 1, 150, 210, 255, 0], lit: 1))
+        case "hub":
+            a.append(VP(k: 1, cx: 0.5, cy: 0.84, w: 0.62, h: 0.07, rad: 0, dir: 2, st: [0, 0, 0, 0, 0.34, 1, 0, 0, 0, 0], blur: 0.015))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.3, w: 0.04, h: 0.24, rad: 0.02, dir: 1, st: [0, 125, 130, 142, 1, 0.28, 201, 204, 212, 1, 0.55, 236, 238, 242, 1, 0.82, 201, 204, 212, 1, 1, 125, 130, 142, 1]))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.6, w: 0.62, h: 0.4, rad: 0.14, dir: 0, st: [0, 255, 255, 255, 1, 1, 195, 199, 209, 1], stroke: 0.6))
+            a.append(VP(k: 0, cx: 0.5, cy: 0.54, w: 0.56, h: 0.08, rad: 0.04, dir: 0, st: [0, 255, 255, 255, 0.6, 1, 255, 255, 255, 0]))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.64, w: 0.06, h: 0.06, rad: 0, dir: 2, st: [0, 255, 255, 255, 1, 0.5, 150, 110, 255, 1, 1, 90, 66, 153, 1], lit: 1))
+            a.append(VP(k: 1, cx: 0.5, cy: 0.64, w: 0.054, h: 0.054, rad: 0, dir: 2, st: [0, 213, 216, 223, 1, 1, 157, 162, 174, 1], lit: 2))
+        default: break
+        }
+        return a
+    }
+
+    static var cache: [String: [VP]] = [:]
+    static func cached(_ key: String) -> [VP] {
+        if let c = cache[key] { return c }
+        let l = layers(key)
+        cache[key] = l
+        return l
+    }
+
+    static func supports(_ key: String) -> Bool { return !cached(key).isEmpty }
+}
+
+struct VectorIcon: View {
+    let key: String
+    let size: CGFloat
+    let lit: Bool
+    let off: Bool
+
+    var body: some View {
+        let ls = VP.cached(key)
+        ZStack {
+            ForEach(Array(ls.enumerated()), id: \.offset) { _, p in
+                if p.lit == 0 || (p.lit == 1 && lit) || (p.lit == 2 && !lit) {
+                    layer(p)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .shadow(color: Color.black.opacity(0.16), radius: size * 0.012, x: 0, y: size * 0.01)
+        .saturation(off ? 0.2 : 1)
+        .opacity(off ? 0.85 : 1)
+    }
+
+    @ViewBuilder
+    func layer(_ p: VP) -> some View {
+        let wpx = p.w * size, hpx = p.h * size
+        Group {
+            if p.k == 0 {
+                paint(RoundedRectangle(cornerRadius: p.rad * size, style: .continuous), p)
+            } else {
+                paint(Ellipse(), p)
+            }
+        }
+        .frame(width: wpx, height: hpx)
+        .rotationEffect(.degrees(Double(p.rot)))
+        .blur(radius: p.blur * size)
+        .offset(x: (p.cx - 0.5) * size, y: (p.cy - 0.5) * size)
+    }
+
+    @ViewBuilder
+    func paint<S: Shape>(_ s: S, _ p: VP) -> some View {
+        if p.ring.count == 3 {
+            s.stroke(Color(red: p.ring[0] / 255, green: p.ring[1] / 255, blue: p.ring[2] / 255), lineWidth: size * p.rw)
+        } else if p.dir == 2 {
+            Circle().fill(RadialGradient(gradient: Gradient(stops: p.stops), center: UnitPoint(x: 0.5, y: 0.4), startRadius: 0, endRadius: p.w * size * 0.6))
+                .frame(width: p.w * size, height: p.w * size)
+                .scaleEffect(x: 1, y: p.h / p.w)
+                .frame(width: p.w * size, height: p.h * size)
+                .overlay(strokeLine(s, p))
+        } else {
+            s.fill(LinearGradient(gradient: Gradient(stops: p.stops), startPoint: VectorIcon.start(p.dir), endPoint: VectorIcon.end(p.dir)))
+                .overlay(strokeLine(s, p))
+        }
+    }
+
+    @ViewBuilder
+    func strokeLine<S: Shape>(_ s: S, _ p: VP) -> some View {
+        if p.stroke > 0 { s.stroke(Color.white.opacity(Double(p.stroke)), lineWidth: 0.8) }
+    }
+
+    static func start(_ d: Int) -> UnitPoint { return d == 1 ? .leading : (d == 3 ? .topLeading : .top) }
+    static func end(_ d: Int) -> UnitPoint { return d == 1 ? .trailing : (d == 3 ? .bottomTrailing : .bottom) }
 }
 
 /// воздушная подсветка плитки цветом устройства
@@ -2507,9 +3391,9 @@ struct SoftLight: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(LinearGradient(colors: [color.opacity(0.30), color.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .fill(LinearGradient(colors: [color.opacity(0.58), color.opacity(0.30)], startPoint: .topLeading, endPoint: .bottomTrailing))
             RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(RadialGradient(colors: [color.opacity(0.85), color.opacity(0.42), color.opacity(0)],
+                .fill(RadialGradient(colors: [color.opacity(0.95), color.opacity(0.62), color.opacity(0)],
                                      center: UnitPoint(x: 0.2, y: 0.22), startRadius: 0, endRadius: 190))
         }
     }
@@ -2558,10 +3442,11 @@ struct PowerButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                Circle().fill(on ? purple : softBtn).frame(width: size, height: size)
-                    .shadow(color: on ? purple.opacity(0.4) : Color.clear, radius: 4, x: 0, y: 2)
-                Image(systemName: "power").font(.system(size: size * 0.44, weight: .semibold))
-                    .foregroundColor(on ? Color.white : Color.secondary)
+                Circle().fill(on ? purple : pageBG).frame(width: size, height: size)
+                    .overlay(Circle().stroke(on ? Color.clear : Color.primary.opacity(0.28), lineWidth: 1.3))
+                    .shadow(color: on ? purple.opacity(0.4) : Color.black.opacity(0.12), radius: on ? 4 : 3, x: 0, y: 2)
+                Image(systemName: "power").font(.system(size: size * 0.44, weight: .bold))
+                    .foregroundColor(on ? Color.white : Color.primary.opacity(0.75))
             }
             .frame(width: size, height: size)
             .contentShape(Circle())
@@ -2818,7 +3703,7 @@ struct Tile: View {
                 SoftLight(color: a)
             }
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(m.quickID == key ? purple.opacity(0.7) : (acc ?? Color.clear).opacity(0.5), lineWidth: 1.2)
+                .stroke(m.quickID == key ? purple.opacity(0.7) : (acc != nil ? acc!.opacity(0.7) : Color.primary.opacity(0.09)), lineWidth: 1.2)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 0) {
                     ZStack(alignment: .bottomTrailing) {
@@ -3024,22 +3909,23 @@ struct RoomSection: View {
                     }
                 }.buttonStyle(.plain).focusable(false)
                 .contextMenu {
-                    Button("Поднять выше") { m.moveRoom(room.id, -1) }
-                    Button("Опустить ниже") { m.moveRoom(room.id, 1) }
                     Button("В самый верх") { m.moveRoom(room.id, -1000) }
+                    Button("В самый низ") { m.moveRoom(room.id, 1000) }
                     Divider()
                     Button(closed ? "Развернуть" : "Свернуть") { m.toggleCollapse(room.id) }
                 }
                 if m.filter == nil {
-                    Menu {
-                        Button("Поднять выше") { m.moveRoom(room.id, -1) }
-                        Button("Опустить ниже") { m.moveRoom(room.id, 1) }
-                        Button("В самый верх") { m.moveRoom(room.id, -1000) }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down").font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
-                    }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                    .opacity(m.hoverRoom == room.id ? 1 : 0)
+                    // ручка: появляется при наведении, потяните — комната переедет
+                    Image(systemName: "line.3.horizontal")
+                        .font(.system(size: 13, weight: .semibold)).foregroundColor(.secondary)
+                        .frame(width: 26, height: 22)
+                        .contentShape(Rectangle())
+                        .opacity(m.hoverRoom == room.id || m.draggingRoom == room.id ? 1 : 0)
+                        .help("Потяните, чтобы переместить комнату")
+                        .onDrag {
+                            m.draggingRoom = room.id
+                            return NSItemProvider(object: room.id as NSString)
+                        }
                 }
                 Spacer()
                 if canSwitch {
@@ -3059,7 +3945,25 @@ struct RoomSection: View {
         }
         .onHover { h in
             if h { m.hoverRoom = room.id } else if m.hoverRoom == room.id { m.hoverRoom = nil }
+            if NSEvent.pressedMouseButtons == 0 && m.draggingRoom != nil { m.draggingRoom = nil }
         }
+        .opacity(m.draggingRoom == room.id ? 0.55 : 1)
+        .onDrop(of: ["public.text", "public.utf8-plain-text"], delegate: RoomDropDelegate(target: room.id, m: m))
+    }
+}
+
+struct RoomDropDelegate: DropDelegate {
+    let target: String
+    let m: HomeModel
+
+    func validateDrop(info: DropInfo) -> Bool { return m.draggingRoom != nil }
+    func dropEntered(info: DropInfo) {
+        if let d = m.draggingRoom { m.moveRoomTo(d, target) }
+    }
+    func dropUpdated(info: DropInfo) -> DropProposal? { return DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool {
+        m.draggingRoom = nil
+        return true
     }
 }
 
@@ -3414,22 +4318,35 @@ struct ScenePreview: View {
     let selected: Bool
 
     var body: some View {
-        let main = sceneColors(scene)[0]
-        HStack(spacing: 7) {
-            SceneOrb(scene: scene, size: 26)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 12, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
-                    .foregroundColor(.primary)
-                Text(sceneHint(scene)).font(.system(size: 10)).lineLimit(1).minimumScaleFactor(0.8)
-                    .foregroundColor(.secondary)
-            }
+        let cols = sceneColors(scene)
+        HStack(spacing: 10) {
+            Circle()
+                .fill(LinearGradient(colors: cols.count > 1 ? cols : [cols[0], cols[0]], startPoint: .topLeading, endPoint: .bottomTrailing))
+                .frame(width: 26, height: 26)
+                .overlay(Circle().stroke(Color.primary.opacity(0.10), lineWidth: 0.5))
+            // название не растягивает плитку: лежит поверх пустого места, длинное плавно уходит в белый
+            Color.clear.frame(maxWidth: .infinity).frame(height: 20)
+                .overlay(
+                    Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .foregroundColor(.primary),
+                    alignment: .leading)
+                .clipped()
+                .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.8), .init(color: .clear, location: 1)],
+                                     startPoint: .leading, endPoint: .trailing))
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 7).padding(.vertical, 5)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(LinearGradient(colors: sceneColors(scene).map { $0.opacity(selected ? 0.28 : 0.13) }, startPoint: .leading, endPoint: .trailing)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(selected ? main.opacity(0.9) : Color.primary.opacity(0.06), lineWidth: selected ? 1.5 : 1))
+        .padding(.horizontal, 11).padding(.vertical, 13)
+        .background(ZStack {
+            RoundedRectangle(cornerRadius: 13, style: .continuous).fill(pageBG)
+            if selected {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(LinearGradient(colors: (cols.count > 1 ? cols : [cols[0], cols[0]]).map { $0.opacity(0.38) },
+                                         startPoint: .leading, endPoint: .trailing))
+            }
+        })
+        .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .stroke(selected ? purple : Color.primary.opacity(0.16), lineWidth: selected ? 1.8 : 1))
         .contentShape(Rectangle())
     }
 }
@@ -4092,6 +5009,7 @@ struct LineChart: View {
 struct StatCard: View {
     let s: Series
     @ObservedObject var m: HomeModel
+    var grouped = false
 
     var body: some View {
         let now = Date().timeIntervalSince1970
@@ -4111,7 +5029,9 @@ struct StatCard: View {
                 Image(systemName: metricSymbol(s.inst)).font(.system(size: 13, weight: .semibold)).foregroundColor(col)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(propTitle(s.inst)).font(.system(size: 13, weight: .bold))
-                    Text(s.dev.name + " · " + m.roomName(s.dev)).font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
+                    if !grouped {
+                        Text(s.dev.name + " · " + m.roomName(s.dev)).font(.system(size: 11)).foregroundColor(.secondary).lineLimit(1)
+                    }
                 }
                 Spacer()
                 if let c = cur {
@@ -4377,8 +5297,30 @@ struct StatsPage: View {
                     }
                     .frame(maxWidth: .infinity).padding(.top, 50)
                 } else {
-                    ForEach(list) { s in
-                        StatCard(s: s, m: m)
+                    // комната → датчик → графики
+                    ForEach(m.scopedRooms) { r in
+                        let ids = Set(r.devices.map { $0.id })
+                        let inRoom = list.filter { ids.contains($0.dev.id) }
+                        if !inRoom.isEmpty {
+                            let devs = r.devices.filter { d in inRoom.contains { $0.dev.id == d.id } }
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 6) {
+                                    Text(r.name).font(.system(size: 18, weight: .bold))
+                                    Text("\(devs.count) " + (devs.count == 1 ? "датчик" : "датчиков"))
+                                        .font(.system(size: 11, weight: .semibold)).foregroundColor(.secondary)
+                                }.padding(.top, 6)
+                                ForEach(devs) { d in
+                                    HStack(spacing: 8) {
+                                        DevImage(d: d, size: 24)
+                                        Text(d.name).font(.system(size: 14, weight: .semibold))
+                                        if !d.online { Text("не в сети").font(.system(size: 11)).foregroundColor(.secondary) }
+                                    }.padding(.top, 2).padding(.leading, 2)
+                                    ForEach(inRoom.filter { $0.dev.id == d.id }) { s in
+                                        StatCard(s: s, m: m, grouped: true)
+                                    }
+                                }
+                            }
+                        }
                     }
                     Text("Яндекс не хранит историю показаний, поэтому виджет копит её сам — раз в 5 минут, пока он запущен. История хранится без ограничения по сроку: свежие две недели подробно, более старое — с шагом 30 минут.")
                         .font(.system(size: 11)).foregroundColor(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -4511,6 +5453,46 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    SectionTitle(text: "Версия и обновления", symbol: "arrow.down.circle")
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Версия " + appVersion).font(.system(size: 15, weight: .bold))
+                                Text(m.lastUpdateCheck.map { "Проверено " + HomeModel.agoText($0) } ?? "Ещё не проверяли")
+                                    .font(.system(size: 11)).foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Button(action: { m.checkUpdate(manual: true) }) {
+                                Text(m.checkingUpdate ? "Проверяю…" : "Проверить обновление")
+                                    .font(.system(size: 12, weight: .semibold)).foregroundColor(.white)
+                                    .padding(.horizontal, 12).padding(.vertical, 7)
+                                    .background(Capsule().fill(purple))
+                            }.buttonStyle(.plain).focusable(false).disabled(m.checkingUpdate)
+                        }
+                        if m.updateAvailable, let t = m.latestTag {
+                            Button(action: {
+                                if let u = URL(string: m.latestURL ?? "https://github.com/Lenar111/yahome/releases/latest") { NSWorkspace.shared.open(u) }
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "sparkles")
+                                    Text("Вышла новая версия " + t + " — открыть релиз").font(.system(size: 12.5, weight: .semibold))
+                                    Spacer()
+                                    Image(systemName: "arrow.up.right")
+                                }
+                                .foregroundColor(.white).padding(.horizontal, 12).padding(.vertical, 9)
+                                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color(red: 0.2, green: 0.7, blue: 0.4)))
+                            }.buttonStyle(.plain).focusable(false)
+                            if !m.latestNotes.isEmpty { UpdateNotes(items: m.latestNotes) }
+                        } else if let msg = m.updateMsg {
+                            Text(msg).font(.system(size: 12)).foregroundColor(.secondary)
+                        }
+                        Divider()
+                        SetRow(symbol: "clock.arrow.circlepath", tint: Color(red: 0.25, green: 0.6, blue: 1), title: "Проверять раз в сутки",
+                               sub: "Сам ничего не устанавливает — только покажет ссылку на новый релиз",
+                               get: { m.autoUpdateCheck }, set: { m.autoUpdateCheck = $0 })
+                    }
+                    .card()
+
                     SectionTitle(text: "Строка меню", symbol: "menubar.rectangle")
                     VStack(alignment: .leading, spacing: 12) {
                         // предпросмотр
@@ -4833,6 +5815,9 @@ struct RootView: View {
                     }
                 }
                 .padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 10)
+                if m.token != nil, m.showUpdateBanner, let t = m.latestTag {
+                    UpdateBanner(m: m, tag: t).padding(.horizontal, 14).padding(.bottom, 8)
+                }
                 if m.token == nil {
                     LoginView(m: m)
                 } else if m.rooms.isEmpty {
@@ -4887,6 +5872,53 @@ struct RootView: View {
             if m.quickID != nil { m.quickID = nil }
             else if m.detailID != nil { m.closeDetail() }
             else if m.tab == 2 { m.tab = 0 }
+        }
+    }
+}
+
+/// «вышла новая версия» + что в ней нового (из описания релиза на GitHub)
+struct UpdateBanner: View {
+    @ObservedObject var m: HomeModel
+    let tag: String
+
+    var body: some View {
+        let green = Color(red: 0.2, green: 0.7, blue: 0.4)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles").foregroundColor(green)
+                Text("Вышла версия " + tag).font(.system(size: 14, weight: .bold))
+                Text("сейчас " + appVersion).font(.system(size: 11)).foregroundColor(.secondary)
+                Spacer()
+                Button(action: { m.dismissedTag = tag }) {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundColor(.secondary)
+                }.buttonStyle(.plain).focusable(false).help("Скрыть")
+            }
+            UpdateNotes(items: Array(m.latestNotes.prefix(5)))
+            Button(action: {
+                if let u = URL(string: m.latestURL ?? "https://github.com/Lenar111/yahome/releases/latest") { NSWorkspace.shared.open(u) }
+            }) {
+                Text("Открыть релиз на GitHub").font(.system(size: 12, weight: .semibold)).foregroundColor(.white)
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Capsule().fill(green))
+            }.buttonStyle(.plain).focusable(false)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(green.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(green.opacity(0.35), lineWidth: 1))
+    }
+}
+
+struct UpdateNotes: View {
+    let items: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, t in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("•").font(.system(size: 12, weight: .bold)).foregroundColor(.secondary)
+                    Text(t).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 }
@@ -4972,6 +6004,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.model.closed()
         }
         if model.token != nil { model.refresh() }
+        model.autoCheckUpdateIfNeeded()
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in self?.model.autoCheckUpdateIfNeeded() }
     }
 
     func statusChanged() {
@@ -4993,6 +6027,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let font = NSFont.menuBarFont(ofSize: 0)
         let dark = item.button?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let neutral = dark ? NSColor.white : NSColor.black
+        let upd = model.showUpdateBanner
         let anyTint = segs.contains { barTint($0, dark: dark) != nil }
         let cfg = NSImage.SymbolConfiguration(pointSize: 13.5, weight: .regular)
             .applying(NSImage.SymbolConfiguration(paletteColors: [neutral]))
@@ -5002,7 +6037,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let tint = barTint(s, dark: dark)
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: font.pointSize - 1, weight: tint == nil ? .medium : .semibold),
-                .foregroundColor: anyTint ? (tint ?? neutral) : NSColor.black]
+                .foregroundColor: (anyTint || upd) ? (tint ?? neutral) : NSColor.black]
             var sym: NSImage? = nil
             if !s.0.isEmpty {
                 sym = (NSImage(systemSymbolName: s.0, accessibilityDescription: nil)
@@ -5015,7 +6050,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if i < segs.count - 1 { width += 10 }
         }
         let h: CGFloat = 18
-        let img = NSImage(size: NSSize(width: Swift.max(16, ceil(width)), height: h), flipped: false) { _ in
+        let dotW: CGFloat = upd ? 5 : 0
+        let img = NSImage(size: NSSize(width: Swift.max(16, ceil(width)) + dotW, height: h), flipped: false) { _ in
             var x: CGFloat = 0
             for (i, p) in parts.enumerated() {
                 if let sym = p.0 {
@@ -5031,9 +6067,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 if i < parts.count - 1 { x += 10 }
             }
+            if upd {
+                NSColor.systemRed.setFill()
+                NSBezierPath(ovalIn: NSRect(x: x + 0.5, y: h - 8, width: 6, height: 6)).fill()
+            }
             return true
         }
-        img.isTemplate = !anyTint
+        img.isTemplate = !(anyTint || upd)
         item.button?.image = img
         item.button?.title = ""
         if let d = model.busyDevices.first { item.button?.toolTip = d.name + ": " + (d.statusLine ?? "работает") }
